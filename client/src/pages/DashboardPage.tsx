@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { InfraGraph } from '../components/graph/InfraGraph';
+import { ResourceSummary } from '../components/graph/ResourceSummary';
 import { useGraph } from '../hooks/useGraph';
 import { useMetrics } from '../hooks/useMetrics';
 import { api } from '../lib/api';
-import { RefreshCw, Loader2, AlertTriangle, Clock } from 'lucide-react';
+import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X } from 'lucide-react';
 
 interface Provider {
   id: number;
@@ -24,6 +25,7 @@ export function DashboardPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<number | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<string[]>(['ec2', 'rds', 's3', 'lambda']);
+  const [searchQuery, setSearchQuery] = useState('');
   const { graphData, loading, error, scannedAt, activeTypes, fetchGraph, loadCached, setGraphData } = useGraph();
 
   useMetrics(selectedProvider, setGraphData);
@@ -65,8 +67,8 @@ export function DashboardPage() {
 
   const handleProviderChange = (id: number) => {
     setSelectedProvider(id);
-    // Reset checkboxes to default until cached data restores them
     setSelectedTypes(['ec2', 'rds', 's3', 'lambda']);
+    setSearchQuery('');
   };
 
   if (providers.length === 0) {
@@ -81,10 +83,22 @@ export function DashboardPage() {
     );
   }
 
+  const matchCount = searchQuery.trim()
+    ? graphData?.nodes.filter(n => {
+        const q = searchQuery.toLowerCase();
+        return (n.label || '').toLowerCase().includes(q)
+          || n.id.toLowerCase().includes(q)
+          || (n.metadata?.instanceId || '').toLowerCase().includes(q)
+          || (n.metadata?.dbInstanceId || '').toLowerCase().includes(q)
+          || (n.metadata?.bucketName || '').toLowerCase().includes(q)
+          || (n.metadata?.functionName || '').toLowerCase().includes(q);
+      }).length ?? 0
+    : null;
+
   return (
     <div className="h-full flex flex-col">
       {/* Controls bar */}
-      <div className="p-3 border-b border-surface-600 bg-surface-900 flex items-center gap-4 flex-wrap">
+      <div className="p-3 border-b border-surface-600 bg-surface-900 flex items-center gap-3 flex-wrap">
         <select
           value={selectedProvider || ''}
           onChange={e => handleProviderChange(Number(e.target.value))}
@@ -94,6 +108,8 @@ export function DashboardPage() {
             <option key={p.id} value={p.id}>{p.label} ({p.region})</option>
           ))}
         </select>
+
+        <div className="w-px h-6 bg-surface-600" />
 
         <div className="flex items-center gap-3 flex-wrap">
           {RESOURCE_TYPES.map(rt => (
@@ -109,6 +125,34 @@ export function DashboardPage() {
           ))}
         </div>
 
+        <div className="w-px h-6 bg-surface-600" />
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search by name or ID..."
+            className="input-field pl-8 pr-8 w-56 text-xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        {matchCount !== null && (
+          <span className="text-[10px] text-gray-500">
+            {matchCount} {matchCount === 1 ? 'match' : 'matches'}
+          </span>
+        )}
+
+        {/* Scan button */}
         <button
           onClick={handleScan}
           disabled={loading || !selectedProvider || selectedTypes.length === 0}
@@ -119,9 +163,14 @@ export function DashboardPage() {
         </button>
       </div>
 
+      {/* Summary strip */}
+      {graphData && graphData.nodes.length > 0 && (
+        <ResourceSummary graphData={graphData} />
+      )}
+
       {/* Last scanned timestamp */}
       {scannedAt && (
-        <div className="px-3 py-1.5 bg-surface-900 border-b border-surface-600 flex items-center gap-1.5 text-[10px] text-gray-500">
+        <div className="px-3 py-1 bg-surface-950 border-b border-surface-600 flex items-center gap-1.5 text-[10px] text-gray-600">
           <Clock className="w-3 h-3" />
           Last scanned: {new Date(scannedAt).toLocaleString()}
         </div>
@@ -138,7 +187,7 @@ export function DashboardPage() {
       <div className="flex-1 overflow-hidden">
         {graphData ? (
           graphData.nodes.length > 0 ? (
-            <InfraGraph graphData={graphData} />
+            <InfraGraph graphData={graphData} searchQuery={searchQuery} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500">
               <div className="text-center">
@@ -151,16 +200,19 @@ export function DashboardPage() {
           <div className="flex items-center justify-center h-full text-gray-500">
             <div className="text-center space-y-3">
               <div className="w-16 h-16 mx-auto rounded-full border-2 border-neon-green/20 flex items-center justify-center">
-                <RefreshCw className="w-8 h-8 text-neon-green/30" />
+                <RefreshCw className={`w-8 h-8 text-neon-green/30 ${loading ? 'animate-spin' : ''}`} />
               </div>
-              <p className="text-sm">Select the resource types above and click <span className="text-gray-300 font-medium">Scan Resources</span>.</p>
+              {loading
+                ? <p className="text-neon-green/60 animate-pulse">Scanning your infrastructure...</p>
+                : <p className="text-sm">Select the resource types above and click <span className="text-gray-300 font-medium">Scan Resources</span>.</p>
+              }
             </div>
           </div>
         )}
       </div>
 
       {/* Stats bar */}
-      {graphData && (
+      {graphData && graphData.nodes.length > 0 && (
         <div className="p-2 border-t border-surface-600 bg-surface-900 flex items-center gap-6 text-[10px] text-gray-500">
           <span>Nodes: <span className="text-gray-300">{graphData.nodes.length}</span></span>
           <span>Edges: <span className="text-gray-300">{graphData.edges.length}</span></span>
