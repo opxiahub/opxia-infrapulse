@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { InfraGraph } from '../components/graph/InfraGraph';
 import { ResourceSummary } from '../components/graph/ResourceSummary';
 import { ResourceTypeSelector } from '../components/ResourceTypeSelector';
+import { ChatPanel } from '../components/chat/ChatPanel';
 import { useGraph } from '../hooks/useGraph';
 import { useMetrics } from '../hooks/useMetrics';
 import { api } from '../lib/api';
-import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X, Tag } from 'lucide-react';
+import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X, Tag, MessageSquare } from 'lucide-react';
 
 interface Provider {
   id: number;
@@ -22,6 +23,7 @@ export function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const { graphData, loading, error, scannedAt, activeTypes, fetchTags, fetchGraph, loadCached, setGraphData } = useGraph();
   const [withTags, setWithTags] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   useMetrics(selectedProvider, setGraphData);
 
@@ -218,6 +220,29 @@ export function DashboardPage() {
           <span>Manual: <span className="text-neon-red">{graphData.nodes.filter(n => n.isManual).length}</span></span>
           <span>Managed: <span className="text-neon-green">{graphData.nodes.filter(n => !n.isManual).length}</span></span>
         </div>
+      )}
+
+      {/* Floating Chat Button */}
+      {!isChatOpen && graphData && graphData.nodes.length > 0 && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-neon-green shadow-lg hover:shadow-neon-green/50 transition-all flex items-center justify-center group z-40"
+          title="Open Infrastructure Assistant"
+        >
+          <MessageSquare className="w-6 h-6 text-surface-900" />
+          <span className="absolute -top-1 -right-1 w-3 h-3 bg-neon-blue rounded-full animate-pulse" />
+        </button>
+      )}
+
+      {/* Chat Panel */}
+      {selectedProviderObj && (
+        <ChatPanel
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          providerId={selectedProvider}
+          providerLabel={selectedProviderObj.label}
+          providerRegion={selectedProviderObj.region}
+        />
       )}
     </div>
   );
