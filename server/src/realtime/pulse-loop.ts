@@ -1,10 +1,11 @@
 import { getIo } from './socket.js';
 import { getDb } from '../db/connection.js';
-import { getAwsClients } from '../aws/client-factory.js';
+import { getClient } from '../aws/client-factory.js';
 import { discoverResources } from '../aws/discovery.js';
 import { fetchMetrics } from '../aws/metrics.js';
 import { decrypt } from '../providers/encryption.js';
 import type { ProviderCredential, AwsCredentials } from '../providers/types.js';
+import type { CloudWatchClient } from '@aws-sdk/client-cloudwatch';
 
 const activeLoops = new Map<string, NodeJS.Timeout>();
 
@@ -33,15 +34,15 @@ export function startPulseLoop(userId: number, providerId: number) {
       }
 
       const creds = JSON.parse(decrypt(row.encrypted_credentials)) as AwsCredentials;
-      const clients = getAwsClients(providerId, creds, row.region);
-      const nodes = await discoverResources(clients);
-      const pulses = await fetchMetrics(clients.cloudwatch, nodes);
+      const nodes = await discoverResources(providerId, creds, row.region, ['ec2', 'rds', 'lambda']);
+      const cloudwatch = getClient<CloudWatchClient>(providerId, creds, row.region, 'cloudwatch');
+      const pulses = await fetchMetrics(cloudwatch, nodes);
 
       io.to(room).emit('metric:pulse', { providerId, pulses });
     } catch (err: any) {
       console.error(`Pulse loop error [${key}]:`, err.message);
     }
-  }, 30000); // 30 seconds
+  }, 30000);
 
   activeLoops.set(key, interval);
   console.log(`Pulse loop started: ${key}`);

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { InfraGraph } from '../components/graph/InfraGraph';
 import { ResourceSummary } from '../components/graph/ResourceSummary';
+import { ResourceTypeSelector } from '../components/ResourceTypeSelector';
 import { useGraph } from '../hooks/useGraph';
 import { useMetrics } from '../hooks/useMetrics';
 import { api } from '../lib/api';
@@ -14,13 +15,6 @@ interface Provider {
   verified: number;
 }
 
-const RESOURCE_TYPES = [
-  { key: 'ec2', label: 'EC2 Instances' },
-  { key: 'rds', label: 'RDS Databases' },
-  { key: 's3', label: 'S3 Buckets' },
-  { key: 'lambda', label: 'Lambda Functions' },
-];
-
 export function DashboardPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<number | null>(null);
@@ -30,7 +24,6 @@ export function DashboardPage() {
 
   useMetrics(selectedProvider, setGraphData);
 
-  // Load providers once on mount
   useEffect(() => {
     api.get<{ providers: Provider[] }>('/providers').then(data => {
       setProviders(data.providers);
@@ -40,13 +33,11 @@ export function DashboardPage() {
     }).catch(() => {});
   }, []);
 
-  // When provider changes, load its cached scan (if any)
   useEffect(() => {
     if (!selectedProvider) return;
     loadCached(selectedProvider);
   }, [selectedProvider, loadCached]);
 
-  // Restore checkbox state from the cached scan's resource types
   useEffect(() => {
     if (activeTypes.length > 0) {
       setSelectedTypes(activeTypes);
@@ -58,12 +49,6 @@ export function DashboardPage() {
       fetchGraph(selectedProvider, selectedTypes);
     }
   }, [selectedProvider, selectedTypes, fetchGraph]);
-
-  const toggleType = (type: string) => {
-    setSelectedTypes(prev =>
-      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
-    );
-  };
 
   const handleProviderChange = (id: number) => {
     setSelectedProvider(id);
@@ -86,44 +71,40 @@ export function DashboardPage() {
   const matchCount = searchQuery.trim()
     ? graphData?.nodes.filter(n => {
         const q = searchQuery.toLowerCase();
-        return (n.label || '').toLowerCase().includes(q)
-          || n.id.toLowerCase().includes(q)
-          || (n.metadata?.instanceId || '').toLowerCase().includes(q)
-          || (n.metadata?.dbInstanceId || '').toLowerCase().includes(q)
-          || (n.metadata?.bucketName || '').toLowerCase().includes(q)
-          || (n.metadata?.functionName || '').toLowerCase().includes(q);
+        const vals = [n.label, n.id, ...Object.values(n.metadata || {}).filter(v => typeof v === 'string')]
+          .map(v => String(v).toLowerCase());
+        return vals.some(v => v.includes(q));
       }).length ?? 0
     : null;
+
+  const selectedProviderObj = providers.find(p => p.id === selectedProvider);
 
   return (
     <div className="h-full flex flex-col">
       {/* Controls bar */}
       <div className="p-3 border-b border-surface-600 bg-surface-900 flex items-center gap-3 flex-wrap">
-        <select
-          value={selectedProvider || ''}
-          onChange={e => handleProviderChange(Number(e.target.value))}
-          className="input-field w-auto"
-        >
-          {providers.map(p => (
-            <option key={p.id} value={p.id}>{p.label} ({p.region})</option>
-          ))}
-        </select>
+        {/* Provider selector with provider badge */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-500">
+            {selectedProviderObj?.provider?.toUpperCase() || 'AWS'}
+          </span>
+          <select
+            value={selectedProvider || ''}
+            onChange={e => handleProviderChange(Number(e.target.value))}
+            className="input-field w-auto text-xs"
+          >
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.label} ({p.region})
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="w-px h-6 bg-surface-600" />
 
-        <div className="flex items-center gap-3 flex-wrap">
-          {RESOURCE_TYPES.map(rt => (
-            <label key={rt.key} className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={selectedTypes.includes(rt.key)}
-                onChange={() => toggleType(rt.key)}
-                className="accent-neon-green"
-              />
-              {rt.label}
-            </label>
-          ))}
-        </div>
+        {/* Grouped resource type selector */}
+        <ResourceTypeSelector selected={selectedTypes} onChange={setSelectedTypes} />
 
         <div className="w-px h-6 bg-surface-600" />
 
@@ -135,7 +116,7 @@ export function DashboardPage() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by name or ID..."
-            className="input-field pl-8 pr-8 w-56 text-xs"
+            className="input-field pl-8 pr-8 w-52 text-xs"
           />
           {searchQuery && (
             <button
@@ -176,14 +157,14 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Error display */}
+      {/* Error */}
       {error && (
         <div className="mx-3 mt-3 p-3 bg-neon-red/10 border border-neon-red/30 rounded text-neon-red text-sm">
           {error}
         </div>
       )}
 
-      {/* Graph area */}
+      {/* Graph */}
       <div className="flex-1 overflow-hidden">
         {graphData ? (
           graphData.nodes.length > 0 ? (

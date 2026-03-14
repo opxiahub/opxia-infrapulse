@@ -1,6 +1,8 @@
+import type { AwsResourceType } from './resource-registry.js';
+
 export interface InfraNode {
   id: string;
-  type: 'ec2' | 'rds' | 's3' | 'lambda';
+  type: AwsResourceType;
   label: string;
   status: string;
   isManual: boolean;

@@ -1,78 +1,142 @@
 import type { InfraNode, InfraEdge, GraphData } from '../aws/types.js';
 
+interface EdgeRule {
+  sourceTypes: string[];
+  targetTypes: string[];
+  match: (source: InfraNode, target: InfraNode) => boolean;
+  label: string;
+  animated: boolean;
+}
+
+const EDGE_RULES: EdgeRule[] = [
+  // Subnet belongs to VPC
+  { sourceTypes: ['subnet'], targetTypes: ['vpc'],
+    match: (s, t) => !!s.metadata.vpcId && s.metadata.vpcId === t.metadata.vpcId,
+    label: 'In VPC', animated: false },
+
+  // EC2 in Subnet
+  { sourceTypes: ['ec2'], targetTypes: ['subnet'],
+    match: (s, t) => !!s.metadata.subnetId && s.metadata.subnetId === t.metadata.subnetId,
+    label: 'In Subnet', animated: false },
+
+  // NAT Gateway in Subnet
+  { sourceTypes: ['nat-gateway'], targetTypes: ['subnet'],
+    match: (s, t) => !!s.metadata.subnetId && s.metadata.subnetId === t.metadata.subnetId,
+    label: 'In Subnet', animated: false },
+
+  // IGW attached to VPC
+  { sourceTypes: ['igw'], targetTypes: ['vpc'],
+    match: (s, t) => !!s.metadata.vpcId && s.metadata.vpcId === t.metadata.vpcId,
+    label: 'Attached', animated: false },
+
+  // Route Table in VPC
+  { sourceTypes: ['route-table'], targetTypes: ['vpc'],
+    match: (s, t) => !!s.metadata.vpcId && s.metadata.vpcId === t.metadata.vpcId,
+    label: 'In VPC', animated: false },
+
+  // VPC Endpoint in VPC
+  { sourceTypes: ['vpc-endpoint'], targetTypes: ['vpc'],
+    match: (s, t) => !!s.metadata.vpcId && s.metadata.vpcId === t.metadata.vpcId,
+    label: 'In VPC', animated: false },
+
+  // NACL in VPC
+  { sourceTypes: ['nacl'], targetTypes: ['vpc'],
+    match: (s, t) => !!s.metadata.vpcId && s.metadata.vpcId === t.metadata.vpcId,
+    label: 'In VPC', animated: false },
+
+  // EC2 <-> RDS same VPC with shared security groups
+  { sourceTypes: ['ec2'], targetTypes: ['rds'],
+    match: (s, t) => {
+      if (!s.metadata.vpcId || s.metadata.vpcId !== t.metadata.vpcId) return false;
+      const ec2Sgs = (s.metadata.securityGroups || []).map((sg: any) => sg.id);
+      const rdsSgs = (t.metadata.securityGroups || []).map((sg: any) => sg.id);
+      return ec2Sgs.some((id: string) => rdsSgs.includes(id));
+    },
+    label: 'SG Link', animated: true },
+
+  // EC2 <-> RDS same VPC (fallback)
+  { sourceTypes: ['ec2'], targetTypes: ['rds'],
+    match: (s, t) => !!s.metadata.vpcId && s.metadata.vpcId === t.metadata.vpcId,
+    label: 'Same VPC', animated: true },
+
+  // Lambda -> S3 via env vars
+  { sourceTypes: ['lambda'], targetTypes: ['s3'],
+    match: (s, t) => {
+      const refs = s.metadata.referencedBuckets || [];
+      return refs.some((ref: string) => ref.includes(t.metadata.bucketName));
+    },
+    label: 'Reads/Writes', animated: true },
+
+  // Lambda -> RDS via env vars
+  { sourceTypes: ['lambda'], targetTypes: ['rds'],
+    match: (s, t) => {
+      const refs = s.metadata.referencedEndpoints || [];
+      return !!t.metadata.endpoint && refs.some((ref: string) => ref.includes(t.metadata.endpoint));
+    },
+    label: 'DB Connection', animated: true },
+
+  // ELB in VPC
+  { sourceTypes: ['elb'], targetTypes: ['vpc'],
+    match: (s, t) => !!s.metadata.vpcId && s.metadata.vpcId === t.metadata.vpcId,
+    label: 'In VPC', animated: false },
+
+  // CloudFront -> S3 origin
+  { sourceTypes: ['cloudfront'], targetTypes: ['s3'],
+    match: (s, t) => {
+      const origins: string[] = s.metadata.origins || [];
+      return origins.some(o => o.includes(t.metadata.bucketName));
+    },
+    label: 'Origin', animated: true },
+
+  // CloudFront -> ELB origin
+  { sourceTypes: ['cloudfront'], targetTypes: ['elb'],
+    match: (s, t) => {
+      const origins: string[] = s.metadata.origins || [];
+      return !!t.metadata.dnsName && origins.some(o => o.includes(t.metadata.dnsName));
+    },
+    label: 'Origin', animated: true },
+
+  // EIP associated to EC2
+  { sourceTypes: ['eip'], targetTypes: ['ec2'],
+    match: (s, t) => !!s.metadata.instanceId && t.metadata.instanceId === s.metadata.instanceId,
+    label: 'Associated', animated: false },
+];
+
 export function buildGraph(nodes: InfraNode[]): GraphData {
   const edges: InfraEdge[] = [];
+  const edgeSet = new Set<string>();
 
-  const ec2Nodes = nodes.filter(n => n.type === 'ec2');
-  const rdsNodes = nodes.filter(n => n.type === 'rds');
-  const s3Nodes = nodes.filter(n => n.type === 's3');
-  const lambdaNodes = nodes.filter(n => n.type === 'lambda');
-
-  // EC2 <-> RDS edges: same VPC or shared security groups
-  for (const ec2 of ec2Nodes) {
-    for (const rds of rdsNodes) {
-      if (ec2.metadata.vpcId && ec2.metadata.vpcId === rds.metadata.vpcId) {
-        const ec2SgIds = (ec2.metadata.securityGroups || []).map((sg: any) => sg.id);
-        const rdsSgIds = (rds.metadata.securityGroups || []).map((sg: any) => sg.id);
-        const sharedSg = ec2SgIds.some((id: string) => rdsSgIds.includes(id));
-
-        edges.push({
-          id: `edge-${ec2.id}-${rds.id}`,
-          source: ec2.id,
-          target: rds.id,
-          label: sharedSg ? 'SG Link' : 'Same VPC',
-          animated: true,
-        });
-      }
-    }
+  // Index nodes by type for faster lookups
+  const byType: Record<string, InfraNode[]> = {};
+  for (const node of nodes) {
+    if (!byType[node.type]) byType[node.type] = [];
+    byType[node.type].push(node);
   }
 
-  // Lambda -> S3 edges: env var references
-  for (const lambda of lambdaNodes) {
-    const bucketRefs = lambda.metadata.referencedBuckets || [];
-    for (const s3 of s3Nodes) {
-      const bucketName = s3.metadata.bucketName;
-      if (bucketRefs.some((ref: string) => ref.includes(bucketName))) {
-        edges.push({
-          id: `edge-${lambda.id}-${s3.id}`,
-          source: lambda.id,
-          target: s3.id,
-          label: 'Reads/Writes',
-          animated: true,
-        });
-      }
-    }
-  }
+  for (const rule of EDGE_RULES) {
+    for (const srcType of rule.sourceTypes) {
+      for (const tgtType of rule.targetTypes) {
+        const sources = byType[srcType] || [];
+        const targets = byType[tgtType] || [];
+        for (const source of sources) {
+          for (const target of targets) {
+            if (source.id === target.id) continue;
+            const edgeKey = `${source.id}->${target.id}`;
+            const reverseKey = `${target.id}->${source.id}`;
+            if (edgeSet.has(edgeKey) || edgeSet.has(reverseKey)) continue;
 
-  // Lambda -> RDS edges: env var endpoint references
-  for (const lambda of lambdaNodes) {
-    const endpointRefs = lambda.metadata.referencedEndpoints || [];
-    for (const rds of rdsNodes) {
-      const endpoint = rds.metadata.endpoint;
-      if (endpoint && endpointRefs.some((ref: string) => ref.includes(endpoint))) {
-        edges.push({
-          id: `edge-${lambda.id}-${rds.id}`,
-          source: lambda.id,
-          target: rds.id,
-          label: 'DB Connection',
-          animated: true,
-        });
-      }
-    }
-  }
-
-  // Lambda in same VPC as EC2
-  for (const lambda of lambdaNodes) {
-    if (!lambda.metadata.vpcId) continue;
-    for (const ec2 of ec2Nodes) {
-      if (ec2.metadata.vpcId === lambda.metadata.vpcId) {
-        edges.push({
-          id: `edge-${lambda.id}-${ec2.id}`,
-          source: lambda.id,
-          target: ec2.id,
-          label: 'Same VPC',
-          animated: false,
-        });
+            if (rule.match(source, target)) {
+              edgeSet.add(edgeKey);
+              edges.push({
+                id: `edge-${source.id}-${target.id}`,
+                source: source.id,
+                target: target.id,
+                label: rule.label,
+                animated: rule.animated,
+              });
+            }
+          }
+        }
       }
     }
   }

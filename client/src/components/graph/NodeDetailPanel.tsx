@@ -1,8 +1,9 @@
-import { X, Server, Database, HardDrive, Zap } from 'lucide-react';
+import { X, Server } from 'lucide-react';
+import { getResourceConfig } from '../../config/aws-resources';
 
 interface Props {
   node: {
-    id: string;
+    id?: string;
     type: string;
     label: string;
     status: string;
@@ -13,22 +14,21 @@ interface Props {
   onClose: () => void;
 }
 
-const ICONS: Record<string, any> = {
-  ec2: Server,
-  rds: Database,
-  s3: HardDrive,
-  lambda: Zap,
-};
-
 export function NodeDetailPanel({ node, onClose }: Props) {
-  const Icon = ICONS[node.type] || Server;
+  const config = getResourceConfig(node.type);
+  const Icon = config?.icon || Server;
+  const iconColor = config?.iconColor || 'text-neon-blue';
+  const activeStatuses = config?.activeStatuses || [];
+  const isActive = activeStatuses.includes(node.status);
 
   return (
     <div className="w-80 bg-surface-900 border-l border-surface-600 h-full overflow-auto">
       <div className="p-4 border-b border-surface-600 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Icon className="w-5 h-5 text-neon-blue" />
-          <span className="font-bold text-sm text-gray-200">{(node.type ?? 'resource').toUpperCase()} Details</span>
+          <Icon className={`w-5 h-5 ${iconColor}`} />
+          <span className="font-bold text-sm text-gray-200">
+            {config?.label || (node.type ?? 'Resource').toUpperCase()}
+          </span>
         </div>
         <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
           <X className="w-4 h-4" />
@@ -44,7 +44,7 @@ export function NodeDetailPanel({ node, onClose }: Props) {
         <div>
           <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Status</div>
           <span className={`text-xs px-2 py-0.5 rounded ${
-            ['running', 'available', 'active', 'Active'].includes(node.status)
+            isActive
               ? 'bg-neon-green/10 text-neon-green'
               : 'bg-gray-600/30 text-gray-400'
           }`}>
@@ -80,15 +80,18 @@ export function NodeDetailPanel({ node, onClose }: Props) {
         <div>
           <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Metadata</div>
           <div className="space-y-1">
-            {Object.entries(node.metadata).map(([key, val]) => {
-              if (typeof val === 'object') return null;
-              return (
-                <div key={key} className="flex justify-between text-xs gap-2">
-                  <span className="text-gray-500 shrink-0">{key}</span>
-                  <span className="text-gray-300 truncate text-right">{String(val)}</span>
-                </div>
-              );
-            })}
+            {Object.entries(node.metadata)
+              .filter(([key]) => key !== 'subtitle')
+              .map(([key, val]) => {
+                if (val === null || val === undefined) return null;
+                if (typeof val === 'object') return null;
+                return (
+                  <div key={key} className="flex justify-between text-xs gap-2">
+                    <span className="text-gray-500 shrink-0">{key}</span>
+                    <span className="text-gray-300 truncate text-right">{String(val)}</span>
+                  </div>
+                );
+              })}
           </div>
         </div>
       </div>

@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../auth/middleware.js';
 import { getDecryptedCredentials } from '../providers/routes.js';
-import { getAwsClients } from '../aws/client-factory.js';
-import { discoverResources, type ResourceType } from '../aws/discovery.js';
+import { discoverResources } from '../aws/discovery.js';
 import { buildGraph } from './builder.js';
 import { getDb } from '../db/connection.js';
 import type { User } from '../auth/passport.js';
+import type { AwsResourceType } from '../aws/resource-registry.js';
 
 const router = Router();
 
@@ -37,15 +37,14 @@ router.get('/:providerId', async (req: Request, res: Response) => {
   const user = req.user as User;
   const providerId = parseInt(req.params.providerId, 10);
   const resourceTypes = ((req.query.types as string) || 'ec2,rds,s3,lambda')
-    .split(',') as ResourceType[];
+    .split(',') as AwsResourceType[];
 
   const result = getDecryptedCredentials(providerId, user.id);
   if (!result) {
     return res.status(404).json({ error: 'Provider not found' });
   }
 
-  const clients = getAwsClients(providerId, result.creds, result.region);
-  const nodes = await discoverResources(clients, resourceTypes);
+  const nodes = await discoverResources(providerId, result.creds, result.region, resourceTypes);
   const graph = buildGraph(nodes);
 
   // Persist result so it survives logout/login

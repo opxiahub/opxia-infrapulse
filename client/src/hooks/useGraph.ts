@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 
 interface InfraNode {
   id: string;
-  type: 'ec2' | 'rds' | 's3' | 'lambda';
+  type: string;
   label: string;
   status: string;
   isManual: boolean;
