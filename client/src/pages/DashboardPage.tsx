@@ -5,7 +5,7 @@ import { ResourceTypeSelector } from '../components/ResourceTypeSelector';
 import { useGraph } from '../hooks/useGraph';
 import { useMetrics } from '../hooks/useMetrics';
 import { api } from '../lib/api';
-import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X } from 'lucide-react';
+import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X, Tag } from 'lucide-react';
 
 interface Provider {
   id: number;
@@ -20,7 +20,8 @@ export function DashboardPage() {
   const [selectedProvider, setSelectedProvider] = useState<number | null>(null);
   const [selectedTypes, setSelectedTypes] = useState<string[]>(['ec2', 'rds', 's3', 'lambda']);
   const [searchQuery, setSearchQuery] = useState('');
-  const { graphData, loading, error, scannedAt, activeTypes, fetchGraph, loadCached, setGraphData } = useGraph();
+  const { graphData, loading, error, scannedAt, activeTypes, fetchTags, fetchGraph, loadCached, setGraphData } = useGraph();
+  const [withTags, setWithTags] = useState(false);
 
   useMetrics(selectedProvider, setGraphData);
 
@@ -44,16 +45,21 @@ export function DashboardPage() {
     }
   }, [activeTypes]);
 
+  useEffect(() => {
+    setWithTags(fetchTags);
+  }, [fetchTags]);
+
   const handleScan = useCallback(() => {
     if (selectedProvider) {
-      fetchGraph(selectedProvider, selectedTypes);
+      fetchGraph(selectedProvider, selectedTypes, withTags);
     }
-  }, [selectedProvider, selectedTypes, fetchGraph]);
+  }, [selectedProvider, selectedTypes, withTags, fetchGraph]);
 
   const handleProviderChange = (id: number) => {
     setSelectedProvider(id);
     setSelectedTypes(['ec2', 'rds', 's3', 'lambda']);
     setSearchQuery('');
+    setWithTags(false);
   };
 
   if (providers.length === 0) {
@@ -133,11 +139,23 @@ export function DashboardPage() {
           </span>
         )}
 
+        {/* Fetch Tags toggle */}
+        <label className="flex items-center gap-1.5 cursor-pointer ml-auto select-none" title="Fetch tags for all resources (makes extra API calls)">
+          <input
+            type="checkbox"
+            checked={withTags}
+            onChange={e => setWithTags(e.target.checked)}
+            className="w-3.5 h-3.5 accent-neon-blue"
+          />
+          <Tag className="w-3.5 h-3.5 text-gray-400" />
+          <span className="text-[11px] text-gray-400">Fetch Tags</span>
+        </label>
+
         {/* Scan button */}
         <button
           onClick={handleScan}
           disabled={loading || !selectedProvider || selectedTypes.length === 0}
-          className="btn-primary flex items-center gap-2 ml-auto"
+          className="btn-primary flex items-center gap-2"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
           {loading ? 'Scanning...' : 'Scan Resources'}

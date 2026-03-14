@@ -9,11 +9,12 @@ export async function discoverLambda(client: LambdaClient): Promise<InfraNode[]>
     const response = await client.send(new ListFunctionsCommand({}));
     for (const fn of response.Functions || []) {
       let hasManagedTag = false;
+      let fetchedTags: Record<string, string> = {};
       try {
         if (fn.FunctionArn) {
           const tagsResponse = await client.send(new ListTagsCommand({ Resource: fn.FunctionArn }));
-          const tags = tagsResponse.Tags || {};
-          hasManagedTag = Object.keys(tags).some(k =>
+          fetchedTags = tagsResponse.Tags || {};
+          hasManagedTag = Object.keys(fetchedTags).some(k =>
             k.toLowerCase().includes('terraform') ||
             k.toLowerCase().includes('cloudformation') ||
             k.toLowerCase() === 'aws:cloudformation:stack-name'
@@ -42,6 +43,7 @@ export async function discoverLambda(client: LambdaClient): Promise<InfraNode[]>
         label: fn.FunctionName || 'Unknown Lambda',
         status: fn.State || 'active',
         isManual: !hasManagedTag,
+        tags: fetchedTags,
         metadata: {
           functionName: fn.FunctionName,
           runtime: fn.Runtime,

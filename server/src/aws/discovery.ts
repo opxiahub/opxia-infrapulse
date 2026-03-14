@@ -23,7 +23,7 @@ import { discoverSns } from './resources/sns.js';
 import { discoverSes } from './resources/ses.js';
 
 // Map each resource type to its discovery function and client key
-const DISCOVERY_MAP: Record<AwsResourceType, { fn: (client: any) => Promise<InfraNode[]>; clientKey: AwsClientKey }> = {
+const DISCOVERY_MAP: Record<AwsResourceType, { fn: (client: any, fetchTags?: boolean) => Promise<InfraNode[]>; clientKey: AwsClientKey }> = {
   ec2:              { fn: discoverEc2,              clientKey: 'ec2' },
   lambda:           { fn: discoverLambda,           clientKey: 'lambda' },
   rds:              { fn: discoverRds,              clientKey: 'rds' },
@@ -56,7 +56,8 @@ export async function discoverResources(
   providerId: number,
   creds: AwsCredentials,
   region: string,
-  resourceTypes: AwsResourceType[]
+  resourceTypes: AwsResourceType[],
+  fetchTags?: boolean
 ): Promise<InfraNode[]> {
   const promises: Promise<InfraNode[]>[] = [];
 
@@ -64,7 +65,7 @@ export async function discoverResources(
     const entry = DISCOVERY_MAP[type];
     if (!entry) continue;
     const client = getClient(providerId, creds, region, entry.clientKey);
-    promises.push(entry.fn(client));
+    promises.push(entry.fn(client, fetchTags));
   }
 
   const results = await Promise.allSettled(promises);

@@ -8,6 +8,7 @@ export interface InfraNode {
   isManual: boolean;
   metadata: Record<string, any>;
   metrics?: MetricData;
+  tags?: Record<string, string>;
 }
 
 export interface InfraEdge {

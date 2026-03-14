@@ -16,6 +16,10 @@ export async function discoverEc2(client: EC2Client): Promise<InfraNode[]> {
           t.Key?.toLowerCase().includes('cloudformation') ||
           t.Key?.toLowerCase() === 'aws:cloudformation:stack-name'
         );
+        const tagRecord: Record<string, string> = {};
+        for (const t of tags) {
+          if (t.Key) tagRecord[t.Key] = t.Value ?? '';
+        }
 
         nodes.push({
           id: `ec2-${instance.InstanceId}`,
@@ -23,6 +27,7 @@ export async function discoverEc2(client: EC2Client): Promise<InfraNode[]> {
           label: nameTag?.Value || instance.InstanceId || 'Unknown EC2',
           status: instance.State?.Name || 'unknown',
           isManual: !hasManagedTag,
+          tags: tagRecord,
           metadata: {
             instanceId: instance.InstanceId,
             instanceType: instance.InstanceType,

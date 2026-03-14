@@ -18,7 +18,7 @@ export function AddProviderModal({ onClose, onAdded }: Props) {
   const [accessKeyId, setAccessKeyId] = useState('');
   const [secretAccessKey, setSecretAccessKey] = useState('');
   const [sessionToken, setSessionToken] = useState('');
-  const [region, setRegion] = useState('us-east-1');
+  const [region, setRegion] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -133,7 +133,9 @@ export function AddProviderModal({ onClose, onAdded }: Props) {
               value={region}
               onChange={e => setRegion(e.target.value)}
               className="input-field"
+              required
             >
+              <option value="" disabled>Select a region</option>
               {AWS_REGIONS.map(r => (
                 <option key={r} value={r}>{r}</option>
               ))}

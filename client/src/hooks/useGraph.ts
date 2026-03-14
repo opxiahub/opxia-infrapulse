@@ -9,6 +9,7 @@ interface InfraNode {
   isManual: boolean;
   metadata: Record<string, any>;
   metrics?: Record<string, number>;
+  tags?: Record<string, string>;
 }
 
 interface InfraEdge {
@@ -30,6 +31,7 @@ export function useGraph() {
   const [error, setError] = useState<string | null>(null);
   const [scannedAt, setScannedAt] = useState<string | null>(null);
   const [activeTypes, setActiveTypes] = useState<string[]>([]);
+  const [fetchTags, setFetchTags] = useState(false);
 
   // Load persisted result from DB (no AWS call)
   const loadCached = useCallback(async (providerId: number) => {
@@ -38,12 +40,14 @@ export function useGraph() {
         cached: GraphData | null;
         resourceTypes?: string[];
         scannedAt?: string;
+        fetchTags?: boolean;
       }>(`/graph/${providerId}/cached`);
 
       if (data.cached) {
         setGraphData(data.cached);
         setScannedAt(data.scannedAt || null);
         setActiveTypes(data.resourceTypes || []);
+        setFetchTags(data.fetchTags ?? false);
       }
     } catch {
       // No cached data is fine, silently ignore
@@ -51,15 +55,19 @@ export function useGraph() {
   }, []);
 
   // Live scan (calls AWS, then saves to DB)
-  const fetchGraph = useCallback(async (providerId: number, types?: string[]) => {
+  const fetchGraph = useCallback(async (providerId: number, types?: string[], withTags?: boolean) => {
     setLoading(true);
     setError(null);
     try {
-      const typesParam = types ? `?types=${types.join(',')}` : '';
-      const data = await api.get<GraphData>(`/graph/${providerId}${typesParam}`);
+      const params = new URLSearchParams();
+      if (types?.length) params.set('types', types.join(','));
+      if (withTags) params.set('fetchTags', 'true');
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const data = await api.get<GraphData>(`/graph/${providerId}${query}`);
       setGraphData(data);
       setScannedAt(new Date().toISOString());
       setActiveTypes(types || []);
+      setFetchTags(withTags ?? false);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -67,5 +75,5 @@ export function useGraph() {
     }
   }, []);
 
-  return { graphData, loading, error, scannedAt, activeTypes, fetchGraph, loadCached, setGraphData };
+  return { graphData, loading, error, scannedAt, activeTypes, fetchTags, fetchGraph, loadCached, setGraphData };
 }

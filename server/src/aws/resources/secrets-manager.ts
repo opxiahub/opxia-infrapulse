@@ -12,12 +12,17 @@ export async function discoverSecretsManager(client: SecretsManagerClient): Prom
         t.Key?.toLowerCase().includes('cloudformation') ||
         t.Key?.toLowerCase() === 'aws:cloudformation:stack-name'
       );
+      const tagRecord: Record<string, string> = {};
+      for (const t of tags) {
+        if (t.Key) tagRecord[t.Key] = t.Value ?? '';
+      }
       return {
         id: `secret-${s.Name}`,
         type: 'secrets-manager' as const,
         label: s.Name || 'Unknown Secret',
         status: s.DeletedDate ? 'deleted' : 'active',
         isManual: !hasManagedTag,
+        tags: tagRecord,
         metadata: { name: s.Name, arn: s.ARN, lastRotated: s.LastRotatedDate?.toISOString(), subtitle: s.Description || s.Name },
       };
     });

@@ -17,6 +17,7 @@ export async function discoverApiGateway(client: APIGatewayClient): Promise<Infr
         label: api.name || 'Unknown API',
         status: 'active',
         isManual: !hasManagedTag,
+        tags: tags as Record<string, string>,
         metadata: { apiId: api.id, name: api.name, description: api.description, endpointType: api.endpointConfiguration?.types?.join(', '), subtitle: api.endpointConfiguration?.types?.join(', ') || 'REST API' },
       };
     });

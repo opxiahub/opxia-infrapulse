@@ -22,6 +22,14 @@ function hasManagedTag(tags: any[]): boolean {
   );
 }
 
+function toTagRecord(tags: any[]): Record<string, string> {
+  const record: Record<string, string> = {};
+  for (const t of (tags || [])) {
+    if (t.Key) record[t.Key] = t.Value ?? '';
+  }
+  return record;
+}
+
 export async function discoverVpc(client: EC2Client): Promise<InfraNode[]> {
   try {
     const res = await client.send(new DescribeVpcsCommand({}));
@@ -33,6 +41,7 @@ export async function discoverVpc(client: EC2Client): Promise<InfraNode[]> {
         label: name || v.VpcId || 'Unknown VPC',
         status: v.State || 'unknown',
         isManual: !hasManagedTag(v.Tags || []),
+        tags: toTagRecord(v.Tags || []),
         metadata: { vpcId: v.VpcId, cidrBlock: v.CidrBlock, isDefault: v.IsDefault, subtitle: v.CidrBlock },
       };
     });
@@ -50,6 +59,7 @@ export async function discoverSubnet(client: EC2Client): Promise<InfraNode[]> {
         label: name || s.SubnetId || 'Unknown Subnet',
         status: s.State || 'unknown',
         isManual: !hasManagedTag(s.Tags || []),
+        tags: toTagRecord(s.Tags || []),
         metadata: { subnetId: s.SubnetId, vpcId: s.VpcId, cidrBlock: s.CidrBlock, az: s.AvailabilityZone, subtitle: `${s.CidrBlock} · ${s.AvailabilityZone}` },
       };
     });
@@ -67,6 +77,7 @@ export async function discoverRouteTable(client: EC2Client): Promise<InfraNode[]
         label: name || rt.RouteTableId || 'Unknown RT',
         status: 'active',
         isManual: !hasManagedTag(rt.Tags || []),
+        tags: toTagRecord(rt.Tags || []),
         metadata: { routeTableId: rt.RouteTableId, vpcId: rt.VpcId, routeCount: rt.Routes?.length || 0, subtitle: `${rt.Routes?.length || 0} routes` },
       };
     });
@@ -84,6 +95,7 @@ export async function discoverTransitGateway(client: EC2Client): Promise<InfraNo
         label: name || tgw.TransitGatewayId || 'Unknown TGW',
         status: tgw.State || 'unknown',
         isManual: !hasManagedTag(tgw.Tags || []),
+        tags: toTagRecord(tgw.Tags || []),
         metadata: { transitGatewayId: tgw.TransitGatewayId, asnNumber: tgw.Options?.AmazonSideAsn, subtitle: tgw.TransitGatewayId },
       };
     });
@@ -101,6 +113,7 @@ export async function discoverVpcEndpoint(client: EC2Client): Promise<InfraNode[
         label: name || ep.ServiceName?.split('.').pop() || ep.VpcEndpointId || 'Unknown Endpoint',
         status: ep.State || 'unknown',
         isManual: !hasManagedTag(ep.Tags || []),
+        tags: toTagRecord(ep.Tags || []),
         metadata: { vpcEndpointId: ep.VpcEndpointId, vpcId: ep.VpcId, serviceName: ep.ServiceName, endpointType: ep.VpcEndpointType, subtitle: ep.ServiceName?.split('.').pop() },
       };
     });
@@ -119,6 +132,7 @@ export async function discoverIgw(client: EC2Client): Promise<InfraNode[]> {
         label: name || igw.InternetGatewayId || 'Unknown IGW',
         status: igw.Attachments?.[0]?.State || 'detached',
         isManual: !hasManagedTag(igw.Tags || []),
+        tags: toTagRecord(igw.Tags || []),
         metadata: { internetGatewayId: igw.InternetGatewayId, vpcId: attachedVpc, subtitle: attachedVpc ? `Attached to ${attachedVpc}` : 'Detached' },
       };
     });
@@ -136,6 +150,7 @@ export async function discoverNatGateway(client: EC2Client): Promise<InfraNode[]
         label: name || nat.NatGatewayId || 'Unknown NAT',
         status: nat.State || 'unknown',
         isManual: !hasManagedTag(nat.Tags || []),
+        tags: toTagRecord(nat.Tags || []),
         metadata: { natGatewayId: nat.NatGatewayId, vpcId: nat.VpcId, subnetId: nat.SubnetId, connectivityType: nat.ConnectivityType, subtitle: nat.ConnectivityType || 'NAT' },
       };
     });
@@ -153,6 +168,7 @@ export async function discoverEip(client: EC2Client): Promise<InfraNode[]> {
         label: name || addr.PublicIp || 'Unknown EIP',
         status: addr.AssociationId ? 'associated' : 'unassociated',
         isManual: !hasManagedTag(addr.Tags || []),
+        tags: toTagRecord(addr.Tags || []),
         metadata: { allocationId: addr.AllocationId, publicIp: addr.PublicIp, instanceId: addr.InstanceId, associationId: addr.AssociationId, subtitle: addr.PublicIp },
       };
     });
@@ -170,6 +186,7 @@ export async function discoverDhcpOptions(client: EC2Client): Promise<InfraNode[
         label: name || d.DhcpOptionsId || 'Unknown DHCP',
         status: 'active',
         isManual: !hasManagedTag(d.Tags || []),
+        tags: toTagRecord(d.Tags || []),
         metadata: { dhcpOptionsId: d.DhcpOptionsId, subtitle: d.DhcpOptionsId },
       };
     });
@@ -187,6 +204,7 @@ export async function discoverNacl(client: EC2Client): Promise<InfraNode[]> {
         label: name || nacl.NetworkAclId || 'Unknown NACL',
         status: nacl.IsDefault ? 'default' : 'custom',
         isManual: !hasManagedTag(nacl.Tags || []),
+        tags: toTagRecord(nacl.Tags || []),
         metadata: { networkAclId: nacl.NetworkAclId, vpcId: nacl.VpcId, isDefault: nacl.IsDefault, entryCount: nacl.Entries?.length || 0, subtitle: `${nacl.Entries?.length || 0} rules` },
       };
     });
@@ -204,6 +222,7 @@ export async function discoverVpn(client: EC2Client): Promise<InfraNode[]> {
         label: name || vpn.VpnConnectionId || 'Unknown VPN',
         status: vpn.State || 'unknown',
         isManual: !hasManagedTag(vpn.Tags || []),
+        tags: toTagRecord(vpn.Tags || []),
         metadata: { vpnConnectionId: vpn.VpnConnectionId, vpnGatewayId: vpn.VpnGatewayId, customerGatewayId: vpn.CustomerGatewayId, vpnType: vpn.Type, subtitle: vpn.Type },
       };
     });

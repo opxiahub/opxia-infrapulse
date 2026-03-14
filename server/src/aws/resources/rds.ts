@@ -8,11 +8,16 @@ export async function discoverRds(client: RDSClient): Promise<InfraNode[]> {
   try {
     const response = await client.send(new DescribeDBInstancesCommand({}));
     for (const db of response.DBInstances || []) {
-      const hasManagedTag = (db.TagList || []).some(t =>
+      const dbTags = db.TagList || [];
+      const hasManagedTag = dbTags.some(t =>
         t.Key?.toLowerCase().includes('terraform') ||
         t.Key?.toLowerCase().includes('cloudformation') ||
         t.Key?.toLowerCase() === 'aws:cloudformation:stack-name'
       );
+      const tagRecord: Record<string, string> = {};
+      for (const t of dbTags) {
+        if (t.Key) tagRecord[t.Key] = t.Value ?? '';
+      }
 
       nodes.push({
         id: `rds-${db.DBInstanceIdentifier}`,
@@ -20,6 +25,7 @@ export async function discoverRds(client: RDSClient): Promise<InfraNode[]> {
         label: db.DBInstanceIdentifier || 'Unknown RDS',
         status: db.DBInstanceStatus || 'unknown',
         isManual: !hasManagedTag,
+        tags: tagRecord,
         metadata: {
           dbInstanceId: db.DBInstanceIdentifier,
           engine: db.Engine,

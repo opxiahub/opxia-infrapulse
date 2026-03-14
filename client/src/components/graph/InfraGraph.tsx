@@ -137,6 +137,7 @@ function layoutNodes(graphData: GraphData): { nodes: Node[]; edges: Edge[] } {
           isManual: node.isManual,
           metadata: node.metadata,
           metrics: node.metrics,
+          tags: node.tags,
         },
       });
     });
