@@ -6,6 +6,7 @@ export interface K8sClients {
   appsV1: k8s.AppsV1Api;
   coreV1: k8s.CoreV1Api;
   networkingV1: k8s.NetworkingV1Api;
+  batchV1: k8s.BatchV1Api;
 }
 
 export function buildClients(cluster: KubernetesCluster): K8sClients {
@@ -42,5 +43,6 @@ export function buildClients(cluster: KubernetesCluster): K8sClients {
     appsV1: kc.makeApiClient(k8s.AppsV1Api),
     coreV1: kc.makeApiClient(k8s.CoreV1Api),
     networkingV1: kc.makeApiClient(k8s.NetworkingV1Api),
+    batchV1: kc.makeApiClient(k8s.BatchV1Api),
   };
 }

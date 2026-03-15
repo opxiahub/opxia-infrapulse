@@ -16,6 +16,13 @@ import { K8sPodNode } from './nodes/K8sPodNode';
 import { K8sServiceNode } from './nodes/K8sServiceNode';
 import { K8sIngressNode } from './nodes/K8sIngressNode';
 import { K8sSecretNode } from './nodes/K8sSecretNode';
+import { K8sStatefulSetNode } from './nodes/K8sStatefulSetNode';
+import { K8sDaemonSetNode } from './nodes/K8sDaemonSetNode';
+import { K8sConfigMapNode } from './nodes/K8sConfigMapNode';
+import { K8sPvcNode } from './nodes/K8sPvcNode';
+import { K8sClusterNodeWidget } from './nodes/K8sClusterNodeWidget';
+import { K8sJobNode } from './nodes/K8sJobNode';
+import { K8sCronJobNode } from './nodes/K8sCronJobNode';
 import { PulseEdge } from './PulseEdge';
 import { K8sNodeDetailPanel } from './K8sNodeDetailPanel';
 import { getK8sResourceConfig } from '../../config/k8s-resources';
@@ -23,11 +30,18 @@ import type { GraphData } from '../../hooks/useGraph';
 
 const k8sNodeTypes: Record<string, any> = {
   resourceGroup: GroupNode,
-  'k8s-deployment': K8sDeploymentNode,
-  'k8s-pod': K8sPodNode,
-  'k8s-service': K8sServiceNode,
-  'k8s-ingress': K8sIngressNode,
-  'k8s-secret': K8sSecretNode,
+  'k8s-deployment':  K8sDeploymentNode,
+  'k8s-pod':         K8sPodNode,
+  'k8s-service':     K8sServiceNode,
+  'k8s-ingress':     K8sIngressNode,
+  'k8s-secret':      K8sSecretNode,
+  'k8s-statefulset': K8sStatefulSetNode,
+  'k8s-daemonset':   K8sDaemonSetNode,
+  'k8s-configmap':   K8sConfigMapNode,
+  'k8s-pvc':         K8sPvcNode,
+  'k8s-node':        K8sClusterNodeWidget,
+  'k8s-job':         K8sJobNode,
+  'k8s-cronjob':     K8sCronJobNode,
 };
 
 const edgeTypes = { pulse: PulseEdge };

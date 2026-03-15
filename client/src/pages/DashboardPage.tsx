@@ -4,10 +4,12 @@ import { K8sGraph } from '../components/graph/K8sGraph';
 import { ResourceSummary } from '../components/graph/ResourceSummary';
 import { K8sSummary } from '../components/graph/K8sSummary';
 import { ResourceTypeSelector } from '../components/ResourceTypeSelector';
+import { K8sResourceTypeSelector } from '../components/K8sResourceTypeSelector';
 import { ChatPanel } from '../components/chat/ChatPanel';
 import { useGraph } from '../hooks/useGraph';
 import { useMetrics } from '../hooks/useMetrics';
 import { useKubernetesGraph } from '../hooks/useKubernetesGraph';
+import { K8S_DEFAULT_TYPES } from '../config/k8s-resources';
 import { api } from '../lib/api';
 import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X, Tag, MessageSquare, Box } from 'lucide-react';
 
@@ -32,6 +34,7 @@ export function DashboardPage() {
   const [k8sClusters, setK8sClusters] = useState<K8sCluster[]>([]);
   const [activeSource, setActiveSource] = useState<string>(''); // 'aws:1' or 'k8s:2'
   const [selectedTypes, setSelectedTypes] = useState<string[]>(['ec2', 'rds', 's3', 'lambda']);
+  const [k8sSelectedTypes, setK8sSelectedTypes] = useState<string[]>(K8S_DEFAULT_TYPES);
   const [searchQuery, setSearchQuery] = useState('');
   const [withTags, setWithTags] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -111,8 +114,8 @@ export function DashboardPage() {
 
   const handleK8sFetch = useCallback(() => {
     if (!sourceId || !isK8s || !selectedNamespace) return;
-    fetchResources(sourceId, selectedNamespace);
-  }, [sourceId, isK8s, selectedNamespace, fetchResources]);
+    fetchResources(sourceId, selectedNamespace, k8sSelectedTypes);
+  }, [sourceId, isK8s, selectedNamespace, k8sSelectedTypes, fetchResources]);
 
   const hasAnySources = providers.length > 0 || k8sClusters.length > 0;
   if (!hasAnySources) {
@@ -151,7 +154,7 @@ export function DashboardPage() {
         <div className="flex items-center gap-2">
           {isK8s ? (
             <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-neon-purple/15 text-neon-purple">
-              K8S
+              {activeCluster?.cluster_type?.toUpperCase() ?? 'K8S'}
             </span>
           ) : (
             <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-500">
@@ -176,7 +179,7 @@ export function DashboardPage() {
               <optgroup label="Kubernetes">
                 {k8sClusters.map(c => (
                   <option key={`k8s:${c.id}`} value={`k8s:${c.id}`}>
-                    {c.label}
+                    {c.label} [{c.cluster_type.toUpperCase()}]
                   </option>
                 ))}
               </optgroup>
@@ -245,9 +248,10 @@ export function DashboardPage() {
                 </select>
               )}
             </div>
+            <K8sResourceTypeSelector selected={k8sSelectedTypes} onChange={setK8sSelectedTypes} />
             <button
               onClick={handleK8sFetch}
-              disabled={k8sLoading || !selectedNamespace || namespacesLoading}
+              disabled={k8sLoading || !selectedNamespace || namespacesLoading || k8sSelectedTypes.length === 0}
               className="btn-primary flex items-center gap-2 ml-auto"
             >
               {k8sLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Box className="w-4 h-4" />}
