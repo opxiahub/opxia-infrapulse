@@ -8,6 +8,7 @@ import authRoutes from './auth/routes.js';
 import providerRoutes from './providers/routes.js';
 import graphRoutes from './graph/routes.js';
 import chatRoutes from './chatbot/routes.js';
+import kubernetesRoutes from './kubernetes/routes.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -42,6 +43,7 @@ export function createApp() {
   app.use('/api/providers', providerRoutes);
   app.use('/api/graph', graphRoutes);
   app.use('/api/chat', chatRoutes);
+  app.use('/api/kubernetes', kubernetesRoutes);
 
   // Serve client in production
   const clientDist = path.resolve(__dirname, '../../client/dist');
