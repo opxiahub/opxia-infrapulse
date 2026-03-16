@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useCallback, useState } from 'react';
+import { useMemo, useEffect, useCallback, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -61,6 +61,19 @@ const GROUP_HEADER = 40;
 const GROUP_GAP = 60;
 const NODES_PER_ROW = 3;
 const GROUPS_PER_ROW = 3;
+
+function getSearchableValues(node: Node): string[] {
+  return [
+    node.data?.label,
+    node.id,
+    ...Object.values(node.data?.metadata || {}).filter(v => typeof v === 'string'),
+  ].filter(Boolean).map(v => String(v).toLowerCase());
+}
+
+function matchesSearch(node: Node, query: string): boolean {
+  if (node.type === 'resourceGroup') return false;
+  return getSearchableValues(node).some(v => v.includes(query));
+}
 
 function layoutK8sNodes(graphData: GraphData): { nodes: Node[]; edges: Edge[] } {
   const groups: Record<string, typeof graphData.nodes> = {};
@@ -165,6 +178,14 @@ function K8sGraphInner({ graphData, searchQuery }: Props) {
   const [edges, , onEdgesChange] = useEdgesState(layout.edges);
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const { setCenter } = useReactFlow();
+  const lastAutoFocusKeyRef = useRef<string | null>(null);
+
+  const centerNode = useCallback((targetNode: Node, allNodes: Node[]) => {
+    const parent = allNodes.find(n => n.id === targetNode.parentNode);
+    const absX = (parent?.position?.x || 0) + targetNode.position.x + NODE_WIDTH / 2;
+    const absY = (parent?.position?.y || 0) + targetNode.position.y + NODE_HEIGHT / 2;
+    setCenter(absX, absY, { zoom: 1.2, duration: 500 });
+  }, [setCenter]);
 
   useEffect(() => {
     setNodes(layoutK8sNodes(graphData).nodes);
@@ -172,6 +193,7 @@ function K8sGraphInner({ graphData, searchQuery }: Props) {
 
   useEffect(() => {
     if (!searchQuery.trim()) {
+      lastAutoFocusKeyRef.current = null;
       setNodes(prev => prev.map(n => ({ ...n, style: { ...n.style, opacity: 1 } })));
       return;
     }
@@ -179,13 +201,7 @@ function K8sGraphInner({ graphData, searchQuery }: Props) {
     const query = searchQuery.toLowerCase();
     setNodes(prev => prev.map(n => {
       if (n.type === 'resourceGroup') return n;
-      const searchableValues = [
-        n.data?.label,
-        n.id,
-        ...Object.values(n.data?.metadata || {}).filter(v => typeof v === 'string'),
-      ].filter(Boolean).map(v => String(v).toLowerCase());
-
-      const matches = searchableValues.some(v => v.includes(query));
+      const matches = matchesSearch(n, query);
       return { ...n, style: { ...n.style, opacity: matches ? 1 : 0.15 } };
     }));
   }, [searchQuery, setNodes]);
@@ -194,29 +210,24 @@ function K8sGraphInner({ graphData, searchQuery }: Props) {
     if (!searchQuery.trim()) return;
 
     const query = searchQuery.toLowerCase();
-    const match = nodes.find(n => {
-      if (n.type === 'resourceGroup') return false;
-      const searchableValues = [
-        n.data?.label,
-        n.id,
-        ...Object.values(n.data?.metadata || {}).filter(v => typeof v === 'string'),
-      ].filter(Boolean).map(v => String(v).toLowerCase());
+    const autoFocusKey = `${query}::${graphData.nodes.length}::${graphData.edges.length}::${graphData.nodes.map(n => n.id).join('|')}`;
+    if (lastAutoFocusKeyRef.current === autoFocusKey) return;
 
-      return searchableValues.some(v => v.includes(query));
-    });
+    const match = nodes.find(n => matchesSearch(n, query));
 
     if (match) {
-      const parent = nodes.find(n => n.id === match.parentNode);
-      const absX = (parent?.position?.x || 0) + match.position.x + NODE_WIDTH / 2;
-      const absY = (parent?.position?.y || 0) + match.position.y + NODE_HEIGHT / 2;
-      setCenter(absX, absY, { zoom: 1.2, duration: 500 });
+      centerNode(match, nodes);
+      lastAutoFocusKeyRef.current = autoFocusKey;
     }
-  }, [searchQuery, nodes, setCenter]);
+  }, [searchQuery, graphData, nodes, centerNode]);
 
   const onNodeClick = useCallback((_: any, node: Node) => {
     if (node.type === 'resourceGroup') return;
+    if (searchQuery.trim() && matchesSearch(node, searchQuery.toLowerCase())) {
+      centerNode(node, nodes);
+    }
     setSelectedNode(node.data);
-  }, []);
+  }, [searchQuery, nodes, centerNode]);
 
   const onPaneClick = useCallback(() => setSelectedNode(null), []);
 

@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useCallback, useState } from 'react';
+import { useMemo, useEffect, useCallback, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -52,6 +52,19 @@ const GROUP_HEADER = 40;
 const GROUP_GAP = 60;
 const NODES_PER_ROW = 3;
 const GROUPS_PER_ROW = 4;
+
+function getSearchableValues(node: Node): string[] {
+  return [
+    node.data?.label,
+    node.id,
+    ...Object.values(node.data?.metadata || {}).filter(v => typeof v === 'string'),
+  ].filter(Boolean).map(v => String(v).toLowerCase());
+}
+
+function matchesSearch(node: Node, query: string): boolean {
+  if (node.type === 'resourceGroup') return false;
+  return getSearchableValues(node).some(v => v.includes(query));
+}
 
 function layoutNodes(graphData: GraphData): { nodes: Node[]; edges: Edge[] } {
   const groups: Record<string, typeof graphData.nodes> = {};
@@ -164,6 +177,14 @@ function InfraGraphInner({ graphData, searchQuery }: Props) {
   const [edges, , onEdgesChange] = useEdgesState(layout.edges);
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const { setCenter } = useReactFlow();
+  const lastAutoFocusKeyRef = useRef<string | null>(null);
+
+  const centerNode = useCallback((targetNode: Node, allNodes: Node[]) => {
+    const parent = allNodes.find(n => n.id === targetNode.parentNode);
+    const absX = (parent?.position?.x || 0) + targetNode.position.x + NODE_WIDTH / 2;
+    const absY = (parent?.position?.y || 0) + targetNode.position.y + NODE_HEIGHT / 2;
+    setCenter(absX, absY, { zoom: 1.2, duration: 500 });
+  }, [setCenter]);
 
   // Update nodes when graphData changes
   useEffect(() => {
@@ -174,6 +195,7 @@ function InfraGraphInner({ graphData, searchQuery }: Props) {
   // Apply search dimming
   useEffect(() => {
     if (!searchQuery.trim()) {
+      lastAutoFocusKeyRef.current = null;
       setNodes(prev => prev.map(n => ({ ...n, style: { ...n.style, opacity: 1 } })));
       return;
     }
@@ -181,13 +203,7 @@ function InfraGraphInner({ graphData, searchQuery }: Props) {
     const query = searchQuery.toLowerCase();
     setNodes(prev => prev.map(n => {
       if (n.type === 'resourceGroup') return n;
-      const searchableValues = [
-        n.data?.label,
-        n.id,
-        ...Object.values(n.data?.metadata || {}).filter(v => typeof v === 'string'),
-      ].filter(Boolean).map(v => String(v).toLowerCase());
-
-      const matches = searchableValues.some(v => v.includes(query));
+      const matches = matchesSearch(n, query);
       return { ...n, style: { ...n.style, opacity: matches ? 1 : 0.15 } };
     }));
   }, [searchQuery, setNodes]);
@@ -195,28 +211,25 @@ function InfraGraphInner({ graphData, searchQuery }: Props) {
   // Focus on first matched node
   useEffect(() => {
     if (!searchQuery.trim()) return;
+
     const query = searchQuery.toLowerCase();
-    const match = nodes.find(n => {
-      if (n.type === 'resourceGroup') return false;
-      const searchableValues = [
-        n.data?.label,
-        n.id,
-        ...Object.values(n.data?.metadata || {}).filter(v => typeof v === 'string'),
-      ].filter(Boolean).map(v => String(v).toLowerCase());
-      return searchableValues.some(v => v.includes(query));
-    });
+    const autoFocusKey = `${query}::${graphData.nodes.length}::${graphData.edges.length}::${graphData.nodes.map(n => n.id).join('|')}`;
+    if (lastAutoFocusKeyRef.current === autoFocusKey) return;
+
+    const match = nodes.find(n => matchesSearch(n, query));
     if (match) {
-      const parent = nodes.find(n => n.id === match.parentNode);
-      const absX = (parent?.position?.x || 0) + match.position.x + NODE_WIDTH / 2;
-      const absY = (parent?.position?.y || 0) + match.position.y + NODE_HEIGHT / 2;
-      setCenter(absX, absY, { zoom: 1.2, duration: 500 });
+      centerNode(match, nodes);
+      lastAutoFocusKeyRef.current = autoFocusKey;
     }
-  }, [searchQuery, nodes, setCenter]);
+  }, [searchQuery, graphData, nodes, centerNode]);
 
   const onNodeClick = useCallback((_: any, node: Node) => {
     if (node.type === 'resourceGroup') return;
+    if (searchQuery.trim() && matchesSearch(node, searchQuery.toLowerCase())) {
+      centerNode(node, nodes);
+    }
     setSelectedNode(node.data);
-  }, []);
+  }, [searchQuery, nodes, centerNode]);
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
