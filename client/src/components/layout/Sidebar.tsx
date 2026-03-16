@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Cloud, Activity } from 'lucide-react';
+import { LayoutDashboard, Cloud, Activity, Box } from 'lucide-react';
 
 export function Sidebar() {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -29,6 +29,10 @@ export function Sidebar() {
         <NavLink to="/providers" className={linkClass}>
           <Cloud className="w-4 h-4" />
           Providers
+        </NavLink>
+        <NavLink to="/kubernetes" className={linkClass}>
+          <Box className="w-4 h-4" />
+          Kubernetes
         </NavLink>
       </nav>
 

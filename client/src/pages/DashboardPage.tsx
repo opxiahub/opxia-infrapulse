@@ -1,14 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { InfraGraph } from '../components/graph/InfraGraph';
+import { K8sGraph } from '../components/graph/K8sGraph';
 import { ResourceSummary } from '../components/graph/ResourceSummary';
+import { K8sSummary } from '../components/graph/K8sSummary';
 import { ResourceTypeSelector } from '../components/ResourceTypeSelector';
+import { K8sResourceTypeSelector } from '../components/K8sResourceTypeSelector';
 import { ChatPanel } from '../components/chat/ChatPanel';
 import { useGraph } from '../hooks/useGraph';
 import { useMetrics } from '../hooks/useMetrics';
+import { useKubernetesGraph } from '../hooks/useKubernetesGraph';
+import { K8S_DEFAULT_TYPES } from '../config/k8s-resources';
 import { api } from '../lib/api';
-import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X, Tag, MessageSquare } from 'lucide-react';
+import { RefreshCw, Loader2, AlertTriangle, Clock, Search, X, Tag, MessageSquare, Box } from 'lucide-react';
 
-interface Provider {
+interface AWSProvider {
   id: number;
   label: string;
   provider: string;
@@ -16,68 +21,124 @@ interface Provider {
   verified: number;
 }
 
+interface K8sCluster {
+  id: number;
+  label: string;
+  cluster_type: string;
+  api_server_url: string;
+  verified: number;
+}
+
 export function DashboardPage() {
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<number | null>(null);
+  const [providers, setProviders] = useState<AWSProvider[]>([]);
+  const [k8sClusters, setK8sClusters] = useState<K8sCluster[]>([]);
+  const [activeSource, setActiveSource] = useState<string>(''); // 'aws:1' or 'k8s:2'
   const [selectedTypes, setSelectedTypes] = useState<string[]>(['ec2', 'rds', 's3', 'lambda']);
+  const [k8sSelectedTypes, setK8sSelectedTypes] = useState<string[]>(K8S_DEFAULT_TYPES);
   const [searchQuery, setSearchQuery] = useState('');
-  const { graphData, loading, error, scannedAt, activeTypes, fetchTags, fetchGraph, loadCached, setGraphData } = useGraph();
   const [withTags, setWithTags] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
-  useMetrics(selectedProvider, setGraphData);
+  const { graphData: awsGraphData, loading: awsLoading, error: awsError, scannedAt, activeTypes, fetchTags, fetchGraph, loadCached, setGraphData } = useGraph();
+  const {
+    graphData: k8sGraphData,
+    namespaces,
+    selectedNamespace,
+    setSelectedNamespace,
+    loading: k8sLoading,
+    namespacesLoading,
+    error: k8sError,
+    fetchNamespaces,
+    fetchResources,
+  } = useKubernetesGraph();
 
+  const isK8s = activeSource.startsWith('k8s:');
+  const sourceId = activeSource ? Number(activeSource.split(':')[1]) : null;
+
+  // Only pass AWS provider id to useMetrics (null for k8s)
+  useMetrics(isK8s ? null : sourceId, setGraphData);
+
+  // Load all sources on mount
   useEffect(() => {
-    api.get<{ providers: Provider[] }>('/providers').then(data => {
-      setProviders(data.providers);
-      if (data.providers.length > 0) {
-        setSelectedProvider(data.providers[0].id);
+    Promise.all([
+      api.get<{ providers: AWSProvider[] }>('/providers').catch(() => ({ providers: [] })),
+      api.get<{ clusters: K8sCluster[] }>('/kubernetes/clusters').catch(() => ({ clusters: [] })),
+    ]).then(([awsData, k8sData]) => {
+      setProviders(awsData.providers);
+      setK8sClusters(k8sData.clusters);
+
+      // Auto-select first available source
+      if (awsData.providers.length > 0) {
+        setActiveSource(`aws:${awsData.providers[0].id}`);
+      } else if (k8sData.clusters.length > 0) {
+        setActiveSource(`k8s:${k8sData.clusters[0].id}`);
       }
-    }).catch(() => {});
+    });
   }, []);
 
+  // Load AWS cached graph when AWS source selected
   useEffect(() => {
-    if (!selectedProvider) return;
-    loadCached(selectedProvider);
-  }, [selectedProvider, loadCached]);
+    if (!activeSource.startsWith('aws:')) return;
+    const id = Number(activeSource.split(':')[1]);
+    loadCached(id);
+  }, [activeSource, loadCached]);
 
+  // Sync activeTypes and withTags from useGraph
   useEffect(() => {
-    if (activeTypes.length > 0) {
-      setSelectedTypes(activeTypes);
-    }
+    if (activeTypes.length > 0) setSelectedTypes(activeTypes);
   }, [activeTypes]);
-
   useEffect(() => {
     setWithTags(fetchTags);
   }, [fetchTags]);
 
-  const handleScan = useCallback(() => {
-    if (selectedProvider) {
-      fetchGraph(selectedProvider, selectedTypes, withTags);
-    }
-  }, [selectedProvider, selectedTypes, withTags, fetchGraph]);
+  // Load K8s namespaces when K8s source selected
+  useEffect(() => {
+    if (!activeSource.startsWith('k8s:')) return;
+    const id = Number(activeSource.split(':')[1]);
+    fetchNamespaces(id);
+  }, [activeSource, fetchNamespaces]);
 
-  const handleProviderChange = (id: number) => {
-    setSelectedProvider(id);
-    setSelectedTypes(['ec2', 'rds', 's3', 'lambda']);
+  const handleSourceChange = (val: string) => {
+    setActiveSource(val);
     setSearchQuery('');
-    setWithTags(false);
+    if (val.startsWith('aws:')) {
+      setSelectedTypes(['ec2', 'rds', 's3', 'lambda']);
+      setWithTags(false);
+    }
   };
 
-  if (providers.length === 0) {
+  const handleAwsScan = useCallback(() => {
+    if (!sourceId || isK8s) return;
+    fetchGraph(sourceId, selectedTypes, withTags);
+  }, [sourceId, isK8s, selectedTypes, withTags, fetchGraph]);
+
+  const handleK8sFetch = useCallback(() => {
+    if (!sourceId || !isK8s || !selectedNamespace) return;
+    fetchResources(sourceId, selectedNamespace, k8sSelectedTypes);
+  }, [sourceId, isK8s, selectedNamespace, k8sSelectedTypes, fetchResources]);
+
+  const hasAnySources = providers.length > 0 || k8sClusters.length > 0;
+  if (!hasAnySources) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
         <div className="text-center">
           <AlertTriangle className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>No providers connected.</p>
-          <p className="text-sm mt-1">Go to Providers to connect your AWS account.</p>
+          <p>No sources connected.</p>
+          <p className="text-sm mt-1">Go to Providers to connect AWS, or Kubernetes to add a cluster.</p>
         </div>
       </div>
     );
   }
 
-  const matchCount = searchQuery.trim()
-    ? graphData?.nodes.filter(n => {
+  const activeProvider = !isK8s && sourceId ? providers.find(p => p.id === sourceId) : null;
+  const activeCluster = isK8s && sourceId ? k8sClusters.find(c => c.id === sourceId) : null;
+
+  const loading = isK8s ? k8sLoading : awsLoading;
+  const error = isK8s ? k8sError : awsError;
+  const graphData = isK8s ? k8sGraphData : awsGraphData;
+
+  const matchCount = !isK8s && searchQuery.trim()
+    ? awsGraphData?.nodes.filter(n => {
         const q = searchQuery.toLowerCase();
         const vals = [n.label, n.id, ...Object.values(n.metadata || {}).filter(v => typeof v === 'string')]
           .map(v => String(v).toLowerCase());
@@ -85,92 +146,131 @@ export function DashboardPage() {
       }).length ?? 0
     : null;
 
-  const selectedProviderObj = providers.find(p => p.id === selectedProvider);
-
   return (
     <div className="h-full flex flex-col">
       {/* Controls bar */}
       <div className="p-3 border-b border-surface-600 bg-surface-900 flex items-center gap-3 flex-wrap">
-        {/* Provider selector with provider badge */}
+        {/* Unified source selector */}
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-500">
-            {selectedProviderObj?.provider?.toUpperCase() || 'AWS'}
-          </span>
+          {isK8s ? (
+            <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-neon-purple/15 text-neon-purple">
+              {activeCluster?.cluster_type?.toUpperCase() ?? 'K8S'}
+            </span>
+          ) : (
+            <span className="text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-500">
+              AWS
+            </span>
+          )}
           <select
-            value={selectedProvider || ''}
-            onChange={e => handleProviderChange(Number(e.target.value))}
+            value={activeSource}
+            onChange={e => handleSourceChange(e.target.value)}
             className="input-field w-auto text-xs"
           >
-            {providers.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.label} ({p.region})
-              </option>
-            ))}
+            {providers.length > 0 && (
+              <optgroup label="AWS Providers">
+                {providers.map(p => (
+                  <option key={`aws:${p.id}`} value={`aws:${p.id}`}>
+                    {p.label} ({p.region})
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {k8sClusters.length > 0 && (
+              <optgroup label="Kubernetes">
+                {k8sClusters.map(c => (
+                  <option key={`k8s:${c.id}`} value={`k8s:${c.id}`}>
+                    {c.label} [{c.cluster_type.toUpperCase()}]
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
 
         <div className="w-px h-6 bg-surface-600" />
 
-        {/* Grouped resource type selector */}
-        <ResourceTypeSelector selected={selectedTypes} onChange={setSelectedTypes} />
-
-        <div className="w-px h-6 bg-surface-600" />
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search by name or ID..."
-            className="input-field pl-8 pr-8 w-52 text-xs"
-          />
-          {searchQuery && (
+        {/* AWS-specific controls */}
+        {!isK8s && (
+          <>
+            <ResourceTypeSelector selected={selectedTypes} onChange={setSelectedTypes} />
+            <div className="w-px h-6 bg-surface-600" />
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search by name or ID..."
+                className="input-field pl-8 pr-8 w-52 text-xs"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {matchCount !== null && (
+              <span className="text-[10px] text-gray-500">{matchCount} {matchCount === 1 ? 'match' : 'matches'}</span>
+            )}
+            <label className="flex items-center gap-1.5 cursor-pointer ml-auto select-none">
+              <input type="checkbox" checked={withTags} onChange={e => setWithTags(e.target.checked)} className="w-3.5 h-3.5 accent-neon-blue" />
+              <Tag className="w-3.5 h-3.5 text-gray-400" />
+              <span className="text-[11px] text-gray-400">Fetch Tags</span>
+            </label>
             <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+              onClick={handleAwsScan}
+              disabled={awsLoading || !sourceId || selectedTypes.length === 0}
+              className="btn-primary flex items-center gap-2"
             >
-              <X className="w-3.5 h-3.5" />
+              {awsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {awsLoading ? 'Scanning...' : 'Scan Resources'}
             </button>
-          )}
-        </div>
-        {matchCount !== null && (
-          <span className="text-[10px] text-gray-500">
-            {matchCount} {matchCount === 1 ? 'match' : 'matches'}
-          </span>
+          </>
         )}
 
-        {/* Fetch Tags toggle */}
-        <label className="flex items-center gap-1.5 cursor-pointer ml-auto select-none" title="Fetch tags for all resources (makes extra API calls)">
-          <input
-            type="checkbox"
-            checked={withTags}
-            onChange={e => setWithTags(e.target.checked)}
-            className="w-3.5 h-3.5 accent-neon-blue"
-          />
-          <Tag className="w-3.5 h-3.5 text-gray-400" />
-          <span className="text-[11px] text-gray-400">Fetch Tags</span>
-        </label>
-
-        {/* Scan button */}
-        <button
-          onClick={handleScan}
-          disabled={loading || !selectedProvider || selectedTypes.length === 0}
-          className="btn-primary flex items-center gap-2"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          {loading ? 'Scanning...' : 'Scan Resources'}
-        </button>
+        {/* K8s-specific controls */}
+        {isK8s && (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Namespace</span>
+              {namespacesLoading ? (
+                <span className="text-xs text-gray-500 animate-pulse">Loading...</span>
+              ) : (
+                <select
+                  value={selectedNamespace}
+                  onChange={e => setSelectedNamespace(e.target.value)}
+                  className="input-field w-auto text-xs"
+                >
+                  {namespaces.map(ns => (
+                    <option key={ns} value={ns}>{ns}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <K8sResourceTypeSelector selected={k8sSelectedTypes} onChange={setK8sSelectedTypes} />
+            <button
+              onClick={handleK8sFetch}
+              disabled={k8sLoading || !selectedNamespace || namespacesLoading || k8sSelectedTypes.length === 0}
+              className="btn-primary flex items-center gap-2 ml-auto"
+            >
+              {k8sLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Box className="w-4 h-4" />}
+              {k8sLoading ? 'Fetching...' : 'Fetch Resources'}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Summary strip */}
-      {graphData && graphData.nodes.length > 0 && (
-        <ResourceSummary graphData={graphData} />
+      {!isK8s && awsGraphData && awsGraphData.nodes.length > 0 && (
+        <ResourceSummary graphData={awsGraphData} />
+      )}
+      {isK8s && k8sGraphData && k8sGraphData.nodes.length > 0 && (
+        <K8sSummary graphData={k8sGraphData} namespace={selectedNamespace} />
       )}
 
-      {/* Last scanned timestamp */}
-      {scannedAt && (
+      {/* Last scanned timestamp (AWS only) */}
+      {!isK8s && scannedAt && (
         <div className="px-3 py-1 bg-surface-950 border-b border-surface-600 flex items-center gap-1.5 text-[10px] text-gray-600">
           <Clock className="w-3 h-3" />
           Last scanned: {new Date(scannedAt).toLocaleString()}
@@ -184,16 +284,22 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Graph */}
+      {/* Graph area */}
       <div className="flex-1 overflow-hidden">
         {graphData ? (
           graphData.nodes.length > 0 ? (
-            <InfraGraph graphData={graphData} searchQuery={searchQuery} />
+            isK8s ? (
+              <K8sGraph graphData={graphData} />
+            ) : (
+              <InfraGraph graphData={graphData} searchQuery={searchQuery} />
+            )
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500">
               <div className="text-center">
-                <p>No resources found for the selected types.</p>
-                <p className="text-sm mt-1">Try selecting different resource types or check your region.</p>
+                <p>No resources found.</p>
+                <p className="text-sm mt-1">
+                  {isK8s ? 'Try selecting a different namespace.' : 'Try selecting different resource types or check your region.'}
+                </p>
               </div>
             </div>
           )
@@ -204,8 +310,15 @@ export function DashboardPage() {
                 <RefreshCw className={`w-8 h-8 text-neon-green/30 ${loading ? 'animate-spin' : ''}`} />
               </div>
               {loading
-                ? <p className="text-neon-green/60 animate-pulse">Scanning your infrastructure...</p>
-                : <p className="text-sm">Select the resource types above and click <span className="text-gray-300 font-medium">Scan Resources</span>.</p>
+                ? <p className="text-neon-green/60 animate-pulse">
+                    {isK8s ? 'Fetching resources...' : 'Scanning your infrastructure...'}
+                  </p>
+                : <p className="text-sm">
+                    {isK8s
+                      ? <>Select a namespace above and click <span className="text-gray-300 font-medium">Fetch Resources</span>.</>
+                      : <>Select the resource types above and click <span className="text-gray-300 font-medium">Scan Resources</span>.</>
+                    }
+                  </p>
               }
             </div>
           </div>
@@ -217,13 +330,20 @@ export function DashboardPage() {
         <div className="p-2 border-t border-surface-600 bg-surface-900 flex items-center gap-6 text-[10px] text-gray-500">
           <span>Nodes: <span className="text-gray-300">{graphData.nodes.length}</span></span>
           <span>Edges: <span className="text-gray-300">{graphData.edges.length}</span></span>
-          <span>Manual: <span className="text-neon-red">{graphData.nodes.filter(n => n.isManual).length}</span></span>
-          <span>Managed: <span className="text-neon-green">{graphData.nodes.filter(n => !n.isManual).length}</span></span>
+          {!isK8s && (
+            <>
+              <span>Manual: <span className="text-neon-red">{graphData.nodes.filter(n => n.isManual).length}</span></span>
+              <span>Managed: <span className="text-neon-green">{graphData.nodes.filter(n => !n.isManual).length}</span></span>
+            </>
+          )}
+          {isK8s && activeCluster && (
+            <span className="text-neon-purple">{activeCluster.label}</span>
+          )}
         </div>
       )}
 
-      {/* Floating Chat Button */}
-      {!isChatOpen && graphData && graphData.nodes.length > 0 && (
+      {/* Floating Chat Button (AWS only) */}
+      {!isK8s && !isChatOpen && awsGraphData && awsGraphData.nodes.length > 0 && (
         <button
           onClick={() => setIsChatOpen(true)}
           className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-neon-green shadow-lg hover:shadow-neon-green/50 transition-all flex items-center justify-center group z-40"
@@ -234,14 +354,14 @@ export function DashboardPage() {
         </button>
       )}
 
-      {/* Chat Panel */}
-      {selectedProviderObj && (
+      {/* Chat Panel (AWS only) */}
+      {activeProvider && (
         <ChatPanel
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
-          providerId={selectedProvider}
-          providerLabel={selectedProviderObj.label}
-          providerRegion={selectedProviderObj.region}
+          providerId={sourceId}
+          providerLabel={activeProvider.label}
+          providerRegion={activeProvider.region}
         />
       )}
     </div>
