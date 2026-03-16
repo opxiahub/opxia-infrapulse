@@ -338,4 +338,4 @@ Contributions are welcome. A good starting workflow is:
 
 ## License
 
-Add a license file before publishing publicly if you want contributors and users to have clear usage terms.
+This project is licensed under the MIT License. See the [LICENSE](/Users/abhimanyu.gupta/Opxia/opxia-infrapulse/LICENSE) file for details.
