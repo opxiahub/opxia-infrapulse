@@ -137,8 +137,8 @@ export function DashboardPage() {
   const error = isK8s ? k8sError : awsError;
   const graphData = isK8s ? k8sGraphData : awsGraphData;
 
-  const matchCount = !isK8s && searchQuery.trim()
-    ? awsGraphData?.nodes.filter(n => {
+  const matchCount = searchQuery.trim()
+    ? graphData?.nodes.filter(n => {
         const q = searchQuery.toLowerCase();
         const vals = [n.label, n.id, ...Object.values(n.metadata || {}).filter(v => typeof v === 'string')]
           .map(v => String(v).toLowerCase());
@@ -249,6 +249,24 @@ export function DashboardPage() {
               )}
             </div>
             <K8sResourceTypeSelector selected={k8sSelectedTypes} onChange={setK8sSelectedTypes} />
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search by name or ID..."
+                className="input-field pl-8 pr-8 w-52 text-xs"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {matchCount !== null && (
+              <span className="text-[10px] text-gray-500">{matchCount} {matchCount === 1 ? 'match' : 'matches'}</span>
+            )}
             <button
               onClick={handleK8sFetch}
               disabled={k8sLoading || !selectedNamespace || namespacesLoading || k8sSelectedTypes.length === 0}
@@ -289,7 +307,7 @@ export function DashboardPage() {
         {graphData ? (
           graphData.nodes.length > 0 ? (
             isK8s ? (
-              <K8sGraph graphData={graphData} />
+              <K8sGraph graphData={graphData} searchQuery={searchQuery} />
             ) : (
               <InfraGraph graphData={graphData} searchQuery={searchQuery} />
             )

@@ -7,6 +7,7 @@ import ReactFlow, {
   type Edge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -48,6 +49,7 @@ const edgeTypes = { pulse: PulseEdge };
 
 interface Props {
   graphData: GraphData;
+  searchQuery: string;
 }
 
 const NODE_WIDTH = 180;
@@ -157,15 +159,59 @@ function layoutK8sNodes(graphData: GraphData): { nodes: Node[]; edges: Edge[] } 
   return { nodes, edges };
 }
 
-function K8sGraphInner({ graphData }: Props) {
+function K8sGraphInner({ graphData, searchQuery }: Props) {
   const layout = useMemo(() => layoutK8sNodes(graphData), [graphData]);
   const [nodes, setNodes, onNodesChange] = useNodesState(layout.nodes);
   const [edges, , onEdgesChange] = useEdgesState(layout.edges);
   const [selectedNode, setSelectedNode] = useState<any>(null);
+  const { setCenter } = useReactFlow();
 
   useEffect(() => {
     setNodes(layoutK8sNodes(graphData).nodes);
   }, [graphData, setNodes]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setNodes(prev => prev.map(n => ({ ...n, style: { ...n.style, opacity: 1 } })));
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    setNodes(prev => prev.map(n => {
+      if (n.type === 'resourceGroup') return n;
+      const searchableValues = [
+        n.data?.label,
+        n.id,
+        ...Object.values(n.data?.metadata || {}).filter(v => typeof v === 'string'),
+      ].filter(Boolean).map(v => String(v).toLowerCase());
+
+      const matches = searchableValues.some(v => v.includes(query));
+      return { ...n, style: { ...n.style, opacity: matches ? 1 : 0.15 } };
+    }));
+  }, [searchQuery, setNodes]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+
+    const query = searchQuery.toLowerCase();
+    const match = nodes.find(n => {
+      if (n.type === 'resourceGroup') return false;
+      const searchableValues = [
+        n.data?.label,
+        n.id,
+        ...Object.values(n.data?.metadata || {}).filter(v => typeof v === 'string'),
+      ].filter(Boolean).map(v => String(v).toLowerCase());
+
+      return searchableValues.some(v => v.includes(query));
+    });
+
+    if (match) {
+      const parent = nodes.find(n => n.id === match.parentNode);
+      const absX = (parent?.position?.x || 0) + match.position.x + NODE_WIDTH / 2;
+      const absY = (parent?.position?.y || 0) + match.position.y + NODE_HEIGHT / 2;
+      setCenter(absX, absY, { zoom: 1.2, duration: 500 });
+    }
+  }, [searchQuery, nodes, setCenter]);
 
   const onNodeClick = useCallback((_: any, node: Node) => {
     if (node.type === 'resourceGroup') return;
