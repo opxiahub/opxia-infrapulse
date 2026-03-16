@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import passport from './passport.js';
 import { getDb } from '../db/connection.js';
+import { config } from '../config.js';
 import type { User } from './passport.js';
 
 const router = Router();
@@ -61,7 +62,7 @@ router.get('/google', passport.authenticate('google', { scope: ['profile', 'emai
 router.get('/google/callback',
   passport.authenticate('google', { failureRedirect: '/login' }),
   (_req: Request, res: Response) => {
-    res.redirect('http://localhost:5173');
+    res.redirect(config.clientUrl);
   }
 );
 

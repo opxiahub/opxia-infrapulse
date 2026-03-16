@@ -11,6 +11,7 @@ interface Provider {
   provider: string;
   region: string;
   verified: number;
+  credential_type: 'permanent' | 'temporary';
   created_at: string;
 }
 

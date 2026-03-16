@@ -50,7 +50,7 @@ export function PulseEdge({
             style={{
               fontSize: '9px',
               fill: '#6b7280',
-              dominantBaseline: 'text-after-edge',
+              dominantBaseline: 'middle',
             }}
           >
             {label}
