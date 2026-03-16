@@ -7,6 +7,9 @@ import { analyzeIntent } from './intent-analyzer.js';
 import { buildContext } from './context-builder.js';
 import { callGlobantLLM } from './llm-service.js';
 import type { GraphData } from '../aws/types.js';
+import { analyzeK8sIntent } from './k8s-intent-analyzer.js';
+import { buildK8sContext } from './k8s-context-builder.js';
+import type { K8sGraphData } from './k8s-types.js';
 
 const router = Router();
 
@@ -15,55 +18,120 @@ router.use(requireAuth);
 // POST /api/chat/message - Send a chat message
 router.post('/message', async (req: Request, res: Response) => {
   const user = req.user as User;
-  const { message, providerId, conversationHistory }: ChatRequest = req.body;
+  const {
+    message,
+    sourceType = 'aws',
+    providerId,
+    clusterId,
+    namespace,
+    conversationHistory,
+  }: ChatRequest = req.body;
 
-  if (!message || !providerId) {
-    return res.status(400).json({ error: 'Message and providerId are required' });
+  if (!message) {
+    return res.status(400).json({ error: 'Message is required' });
   }
 
   try {
-    // Verify user has access to this provider
     const db = getDb();
-    const provider = db.prepare(
-      'SELECT id, label, region FROM provider_credentials WHERE id = ? AND user_id = ?'
-    ).get(providerId, user.id) as any;
+    let llmResponse = '';
 
-    if (!provider) {
-      return res.status(404).json({ error: 'Provider not found or access denied' });
-    }
+    if (sourceType === 'k8s') {
+      if (!clusterId || !namespace) {
+        return res.status(400).json({ error: 'clusterId and namespace are required for Kubernetes chat' });
+      }
 
-    // Get cached graph data for this provider
-    const cachedGraph = db.prepare(
-      'SELECT graph_data FROM cached_graphs WHERE user_id = ? AND provider_id = ?'
-    ).get(user.id, providerId) as any;
+      const cluster = db.prepare(
+        'SELECT id, label, cluster_type FROM kubernetes_clusters WHERE id = ? AND user_id = ?'
+      ).get(clusterId, user.id) as any;
 
-    if (!cachedGraph) {
-      return res.status(404).json({
-        error: 'No infrastructure data found. Please scan your resources first.'
-      });
-    }
+      if (!cluster) {
+        return res.status(404).json({ error: 'Cluster not found or access denied' });
+      }
 
-    const graphData: GraphData = JSON.parse(cachedGraph.graph_data);
+      const cachedGraph = db.prepare(
+        `SELECT graph_data
+         FROM cached_kubernetes_graphs
+         WHERE user_id = ? AND cluster_id = ? AND namespace = ?`
+      ).get(user.id, clusterId, namespace) as any;
 
-    // Step 1: Analyze user intent
-    console.log(`Analyzing intent for: "${message}"`);
-    const intent = await analyzeIntent(message);
-    console.log('Intent analysis result:', intent);
+      if (!cachedGraph) {
+        return res.status(404).json({
+          error: 'No Kubernetes namespace data found. Please fetch resources for this namespace first.',
+        });
+      }
 
-    // Step 2: Build context based on intent
-    const { context, isRefusal, refusalMessage } = buildContext(graphData, intent);
+      const graphData: K8sGraphData = JSON.parse(cachedGraph.graph_data);
+      const intent = await analyzeK8sIntent(message);
+      const { context, isRefusal, refusalMessage } = buildK8sContext(graphData, intent);
 
-    // If this is a refusal (asking about unavailable data), return the refusal message
-    if (isRefusal && refusalMessage) {
-      const response: ChatResponse = {
-        response: refusalMessage,
-        timestamp: new Date().toISOString()
-      };
-      return res.json(response);
-    }
+      if (isRefusal && refusalMessage) {
+        const response: ChatResponse = {
+          response: refusalMessage,
+          timestamp: new Date().toISOString(),
+        };
+        return res.json(response);
+      }
 
-    // Step 3: Generate response using LLM with context
-    const systemPrompt = `You are an AWS infrastructure assistant for the "${provider.label}" environment (${provider.region} region).
+      const systemPrompt = `You are a Kubernetes infrastructure assistant for the "${cluster.label}" ${String(cluster.cluster_type).toUpperCase()} cluster.
+
+Your role is to help users understand the scanned "${namespace}" namespace based on cached configuration metadata ONLY.
+
+You have access to the following namespace context:
+${context}
+
+Guidelines:
+1. Answer only from the provided cached Kubernetes context
+2. Be concise but informative
+3. Use bullet points for lists when helpful
+4. Include specific workload, service, ingress, pod, node, or storage names when relevant
+5. If asked about logs, live metrics, traffic, runtime health, or other unavailable data, explain that you only have scanned metadata
+6. Do NOT invent cluster state that is not present in the context
+7. Stay within the scope of the scanned namespace and related cluster-node metadata
+
+Cluster context: ${cluster.label}
+Cluster type: ${String(cluster.cluster_type).toUpperCase()}
+Namespace context: ${namespace}`;
+
+      llmResponse = await callGlobantLLM(systemPrompt, message, 'openai/gpt-4o-mini', false);
+    } else {
+      if (!providerId) {
+        return res.status(400).json({ error: 'providerId is required for AWS chat' });
+      }
+
+      const provider = db.prepare(
+        'SELECT id, label, region FROM provider_credentials WHERE id = ? AND user_id = ?'
+      ).get(providerId, user.id) as any;
+
+      if (!provider) {
+        return res.status(404).json({ error: 'Provider not found or access denied' });
+      }
+
+      const cachedGraph = db.prepare(
+        'SELECT graph_data FROM cached_graphs WHERE user_id = ? AND provider_id = ?'
+      ).get(user.id, providerId) as any;
+
+      if (!cachedGraph) {
+        return res.status(404).json({
+          error: 'No infrastructure data found. Please scan your resources first.'
+        });
+      }
+
+      const graphData: GraphData = JSON.parse(cachedGraph.graph_data);
+      console.log(`Analyzing intent for: "${message}"`);
+      const intent = await analyzeIntent(message);
+      console.log('Intent analysis result:', intent);
+
+      const { context, isRefusal, refusalMessage } = buildContext(graphData, intent);
+
+      if (isRefusal && refusalMessage) {
+        const response: ChatResponse = {
+          response: refusalMessage,
+          timestamp: new Date().toISOString()
+        };
+        return res.json(response);
+      }
+
+      const systemPrompt = `You are an AWS infrastructure assistant for the "${provider.label}" environment (${provider.region} region).
 
 Your role is to help users understand their infrastructure based on configuration and metadata ONLY.
 
@@ -81,12 +149,13 @@ Guidelines:
 
 Provider context: ${provider.label} in ${provider.region}`;
 
-    const llmResponse = await callGlobantLLM(
-      systemPrompt,
-      message,
-      "openai/gpt-4o-mini",
-      false
-    );
+      llmResponse = await callGlobantLLM(
+        systemPrompt,
+        message,
+        'openai/gpt-4o-mini',
+        false
+      );
+    }
 
     const response: ChatResponse = {
       response: llmResponse,

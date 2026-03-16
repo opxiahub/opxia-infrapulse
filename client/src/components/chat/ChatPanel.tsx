@@ -12,12 +12,22 @@ interface Message {
 interface ChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  providerId: number | null;
-  providerLabel: string;
-  providerRegion: string;
+  sourceType: 'aws' | 'k8s';
+  sourceId: number | null;
+  sourceLabel: string;
+  sourceSubtitle: string;
+  namespace?: string;
 }
 
-export function ChatPanel({ isOpen, onClose, providerId, providerLabel, providerRegion }: ChatPanelProps) {
+export function ChatPanel({
+  isOpen,
+  onClose,
+  sourceType,
+  sourceId,
+  sourceLabel,
+  sourceSubtitle,
+  namespace,
+}: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,16 +46,18 @@ export function ChatPanel({ isOpen, onClose, providerId, providerLabel, provider
     if (isOpen) {
       setMessages([{
         role: 'assistant',
-        content: `👋 Hello! I'm your infrastructure assistant for **${providerLabel}** (${providerRegion}).\n\nI can help you understand your infrastructure configuration and metadata. Ask me about:\n\n• Resource counts and lists\n• Configuration details (instance types, runtime, etc.)\n• Network settings (VPCs, subnets, IPs)\n• Tags and management status\n• Resource relationships\n\nWhat would you like to know?`,
+        content: sourceType === 'aws'
+          ? `👋 Hello! I'm your infrastructure assistant for **${sourceLabel}** (${sourceSubtitle}).\n\nI can help you understand your infrastructure configuration and metadata. Ask me about:\n\n• Resource counts and lists\n• Configuration details (instance types, runtime, etc.)\n• Network settings (VPCs, subnets, IPs)\n• Tags and management status\n• Resource relationships\n\nWhat would you like to know?`
+          : `👋 Hello! I'm your Kubernetes assistant for **${sourceLabel}**.\n\nI'm grounded on the scanned **${namespace || 'selected'}** namespace metadata in ${sourceSubtitle}. Ask me about:\n\n• Workloads, pods, jobs, and cronjobs\n• Services, ingresses, and exposed backends\n• Images, replica counts, readiness, and restart counts\n• ConfigMaps, secrets, PVCs, and node metadata\n• Relationships between scanned namespace resources\n\nWhat would you like to know?`,
         timestamp: new Date().toISOString()
       }]);
       setError(null);
     }
-  }, [isOpen, providerId, providerLabel, providerRegion]);
+  }, [isOpen, sourceType, sourceId, sourceLabel, sourceSubtitle, namespace]);
 
   const handleSendMessage = async (message: string) => {
-    if (!providerId) {
-      setError('No provider selected');
+    if (!sourceId) {
+      setError(sourceType === 'aws' ? 'No provider selected' : 'No cluster selected');
       return;
     }
 
@@ -68,7 +80,10 @@ export function ChatPanel({ isOpen, onClose, providerId, providerLabel, provider
         credentials: 'include',
         body: JSON.stringify({
           message,
-          providerId,
+          sourceType,
+          providerId: sourceType === 'aws' ? sourceId : undefined,
+          clusterId: sourceType === 'k8s' ? sourceId : undefined,
+          namespace: sourceType === 'k8s' ? namespace : undefined,
         }),
       });
 
@@ -112,7 +127,7 @@ export function ChatPanel({ isOpen, onClose, providerId, providerLabel, provider
           <MessageSquare className="w-5 h-5 text-neon-green" />
           <div>
             <h3 className="font-semibold text-sm text-gray-100">Infrastructure Assistant</h3>
-            <p className="text-[10px] text-gray-500">{providerLabel} • {providerRegion}</p>
+            <p className="text-[10px] text-gray-500">{sourceLabel} • {sourceSubtitle}</p>
           </div>
         </div>
         <button
@@ -153,7 +168,7 @@ export function ChatPanel({ isOpen, onClose, providerId, providerLabel, provider
       </div>
 
       {/* Input */}
-      <ChatInput onSend={handleSendMessage} disabled={loading || !providerId} />
+      <ChatInput onSend={handleSendMessage} disabled={loading || !sourceId} />
     </div>
   );
 }

@@ -39,7 +39,7 @@ export function DashboardPage() {
   const [withTags, setWithTags] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
-  const { graphData: awsGraphData, loading: awsLoading, error: awsError, scannedAt, activeTypes, fetchTags, fetchGraph, loadCached, setGraphData } = useGraph();
+  const { graphData: awsGraphData, loading: awsLoading, error: awsError, scannedAt: awsScannedAt, activeTypes, fetchTags, fetchGraph, loadCached, setGraphData } = useGraph();
   const {
     graphData: k8sGraphData,
     namespaces,
@@ -48,7 +48,10 @@ export function DashboardPage() {
     loading: k8sLoading,
     namespacesLoading,
     error: k8sError,
+    scannedAt: k8sScannedAt,
+    activeTypes: k8sActiveTypes,
     fetchNamespaces,
+    loadCached: loadK8sCached,
     fetchResources,
   } = useKubernetesGraph();
 
@@ -88,6 +91,9 @@ export function DashboardPage() {
     if (activeTypes.length > 0) setSelectedTypes(activeTypes);
   }, [activeTypes]);
   useEffect(() => {
+    if (k8sActiveTypes.length > 0) setK8sSelectedTypes(k8sActiveTypes);
+  }, [k8sActiveTypes]);
+  useEffect(() => {
     setWithTags(fetchTags);
   }, [fetchTags]);
 
@@ -97,6 +103,12 @@ export function DashboardPage() {
     const id = Number(activeSource.split(':')[1]);
     fetchNamespaces(id);
   }, [activeSource, fetchNamespaces]);
+
+  useEffect(() => {
+    if (!activeSource.startsWith('k8s:') || !selectedNamespace) return;
+    const id = Number(activeSource.split(':')[1]);
+    loadK8sCached(id, selectedNamespace);
+  }, [activeSource, selectedNamespace, loadK8sCached]);
 
   const handleSourceChange = (val: string) => {
     setActiveSource(val);
@@ -136,6 +148,7 @@ export function DashboardPage() {
   const loading = isK8s ? k8sLoading : awsLoading;
   const error = isK8s ? k8sError : awsError;
   const graphData = isK8s ? k8sGraphData : awsGraphData;
+  const scannedAt = isK8s ? k8sScannedAt : awsScannedAt;
 
   const matchCount = searchQuery.trim()
     ? graphData?.nodes.filter(n => {
@@ -287,8 +300,8 @@ export function DashboardPage() {
         <K8sSummary graphData={k8sGraphData} namespace={selectedNamespace} />
       )}
 
-      {/* Last scanned timestamp (AWS only) */}
-      {!isK8s && scannedAt && (
+      {/* Last scanned timestamp */}
+      {scannedAt && (
         <div className="px-3 py-1 bg-surface-950 border-b border-surface-600 flex items-center gap-1.5 text-[10px] text-gray-600">
           <Clock className="w-3 h-3" />
           Last scanned: {new Date(scannedAt).toLocaleString()}
@@ -360,26 +373,30 @@ export function DashboardPage() {
         </div>
       )}
 
-      {/* Floating Chat Button (AWS only) */}
-      {!isK8s && !isChatOpen && awsGraphData && awsGraphData.nodes.length > 0 && (
+      {/* Floating Chat Button */}
+      {!isChatOpen && graphData && graphData.nodes.length > 0 && (
         <button
           onClick={() => setIsChatOpen(true)}
           className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-neon-green shadow-lg hover:shadow-neon-green/50 transition-all flex items-center justify-center group z-40"
-          title="Open Infrastructure Assistant"
+          title={isK8s ? 'Open Kubernetes Assistant' : 'Open Infrastructure Assistant'}
         >
           <MessageSquare className="w-6 h-6 text-surface-900" />
           <span className="absolute -top-1 -right-1 w-3 h-3 bg-neon-blue rounded-full animate-pulse" />
         </button>
       )}
 
-      {/* Chat Panel (AWS only) */}
-      {activeProvider && (
+      {/* Chat Panel */}
+      {(activeProvider || activeCluster) && (
         <ChatPanel
           isOpen={isChatOpen}
           onClose={() => setIsChatOpen(false)}
-          providerId={sourceId}
-          providerLabel={activeProvider.label}
-          providerRegion={activeProvider.region}
+          sourceType={isK8s ? 'k8s' : 'aws'}
+          sourceId={sourceId}
+          sourceLabel={isK8s ? (activeCluster?.label || 'Kubernetes Cluster') : (activeProvider?.label || 'AWS Provider')}
+          sourceSubtitle={isK8s
+            ? `${activeCluster?.cluster_type?.toUpperCase() || 'K8S'} • namespace ${selectedNamespace || 'n/a'}`
+            : (activeProvider?.region || 'unknown region')}
+          namespace={isK8s ? selectedNamespace : undefined}
         />
       )}
     </div>

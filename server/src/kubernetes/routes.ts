@@ -12,6 +12,7 @@ import {
 import { getPodLogs } from './logs.js';
 import type { KubernetesCluster, KubernetesCredentials } from './types.js';
 import type { User } from '../auth/passport.js';
+import { buildKubernetesGraphData } from './graph-builder.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -110,6 +111,31 @@ router.get('/clusters/:id/namespaces', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/kubernetes/clusters/:id/cached?namespace=X
+router.get('/clusters/:id/cached', (req: Request, res: Response) => {
+  const user = req.user as User;
+  const cluster = getCluster(req.params.id, user.id);
+  if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
+
+  const namespace = (req.query.namespace as string) || 'default';
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT graph_data, resource_types, scanned_at
+     FROM cached_kubernetes_graphs
+     WHERE user_id = ? AND cluster_id = ? AND namespace = ?`
+  ).get(user.id, cluster.id, namespace) as any;
+
+  if (!row) {
+    return res.json({ cached: null });
+  }
+
+  res.json({
+    cached: JSON.parse(row.graph_data),
+    resourceTypes: row.resource_types.split(','),
+    scannedAt: row.scanned_at,
+  });
+});
+
 // GET /api/kubernetes/clusters/:id/resources?namespace=X&types=k8s-deployment,k8s-pod,...
 router.get('/clusters/:id/resources', async (req: Request, res: Response) => {
   const user = req.user as User;
@@ -128,7 +154,20 @@ router.get('/clusters/:id/resources', async (req: Request, res: Response) => {
         return [type, items] as [string, any[]];
       })
     );
-    res.json(Object.fromEntries(results));
+    const rawData = Object.fromEntries(results);
+    const graph = buildKubernetesGraphData(rawData, cluster.id, namespace);
+    const db = getDb();
+
+    db.prepare(`
+      INSERT INTO cached_kubernetes_graphs (user_id, cluster_id, namespace, resource_types, graph_data, scanned_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id, cluster_id, namespace) DO UPDATE SET
+        resource_types = excluded.resource_types,
+        graph_data     = excluded.graph_data,
+        scanned_at     = excluded.scanned_at
+    `).run(user.id, cluster.id, namespace, requestedTypes.join(','), JSON.stringify(graph));
+
+    res.json(rawData);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

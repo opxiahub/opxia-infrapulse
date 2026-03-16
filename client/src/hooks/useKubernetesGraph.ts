@@ -312,11 +312,15 @@ export function useKubernetesGraph() {
   const [loading, setLoading] = useState(false);
   const [namespacesLoading, setNamespacesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scannedAt, setScannedAt] = useState<string | null>(null);
+  const [activeTypes, setActiveTypes] = useState<string[]>([]);
 
   const fetchNamespaces = useCallback(async (clusterId: number) => {
     setNamespacesLoading(true);
     setError(null);
     setGraphData(null);
+    setScannedAt(null);
+    setActiveTypes([]);
     setSelectedNamespace('');
     try {
       const data = await api.get<{ namespaces: string[] }>(`/kubernetes/clusters/${clusterId}/namespaces`);
@@ -330,6 +334,34 @@ export function useKubernetesGraph() {
     }
   }, []);
 
+  const loadCached = useCallback(async (clusterId: number, namespace: string) => {
+    if (!namespace) return;
+    setError(null);
+    try {
+      const params = new URLSearchParams({ namespace });
+      const data = await api.get<{
+        cached: GraphData | null;
+        resourceTypes?: string[];
+        scannedAt?: string;
+      }>(`/kubernetes/clusters/${clusterId}/cached?${params}`);
+
+      if (data.cached) {
+        setGraphData(data.cached);
+        setScannedAt(data.scannedAt || null);
+        setActiveTypes(data.resourceTypes || []);
+      } else {
+        setGraphData(null);
+        setScannedAt(null);
+        setActiveTypes([]);
+      }
+    } catch (err: any) {
+      setError(err.message);
+      setGraphData(null);
+      setScannedAt(null);
+      setActiveTypes([]);
+    }
+  }, []);
+
   const fetchResources = useCallback(async (clusterId: number, namespace: string, types: string[]) => {
     if (!namespace || types.length === 0) return;
     setLoading(true);
@@ -338,6 +370,8 @@ export function useKubernetesGraph() {
       const params = new URLSearchParams({ namespace, types: types.join(',') });
       const raw = await api.get<RawData>(`/kubernetes/clusters/${clusterId}/resources?${params}`);
       setGraphData(buildGraphData(raw, clusterId, namespace));
+      setScannedAt(new Date().toISOString());
+      setActiveTypes(types);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -353,7 +387,10 @@ export function useKubernetesGraph() {
     loading,
     namespacesLoading,
     error,
+    scannedAt,
+    activeTypes,
     fetchNamespaces,
+    loadCached,
     fetchResources,
   };
 }

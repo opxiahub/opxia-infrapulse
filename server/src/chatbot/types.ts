@@ -8,7 +8,10 @@ export interface ChatMessage {
 
 export interface ChatRequest {
   message: string;
-  providerId: number;
+  sourceType?: 'aws' | 'k8s';
+  providerId?: number;
+  clusterId?: number;
+  namespace?: string;
   conversationHistory?: ChatMessage[];
 }
 
