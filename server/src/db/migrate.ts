@@ -15,8 +15,16 @@ export function runMigrations() {
     )
   `);
 
-  const migrationsDir = path.resolve(__dirname, './migrations');
-  if (!fs.existsSync(migrationsDir)) return;
+  const candidateDirs = [
+    path.resolve(__dirname, './migrations'),
+    path.resolve(__dirname, '../../src/db/migrations'),
+  ];
+
+  const migrationsDir = candidateDirs.find((dir) => fs.existsSync(dir));
+  if (!migrationsDir) {
+    console.warn('No migration directory found; skipping database migrations');
+    return;
+  }
 
   const files = fs.readdirSync(migrationsDir)
     .filter(f => f.endsWith('.sql'))
