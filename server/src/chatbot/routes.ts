@@ -92,7 +92,7 @@ Cluster context: ${cluster.label}
 Cluster type: ${String(cluster.cluster_type).toUpperCase()}
 Namespace context: ${namespace}`;
 
-      llmResponse = await callGlobantLLM(systemPrompt, message, 'openai/gpt-4o-mini', false);
+      llmResponse = await callGlobantLLM(systemPrompt, message, 'openai/gpt-5.4', false);
     } else {
       if (!providerId) {
         return res.status(400).json({ error: 'providerId is required for AWS chat' });
@@ -152,7 +152,7 @@ Provider context: ${provider.label} in ${provider.region}`;
       llmResponse = await callGlobantLLM(
         systemPrompt,
         message,
-        'openai/gpt-4o-mini',
+        'openai/gpt-5.4',
         false
       );
     }

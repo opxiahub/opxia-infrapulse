@@ -3,7 +3,7 @@ import axios from 'axios';
 export async function callGlobantLLM(
   system: string,
   user: string,
-  modelName = "openai/gpt-4o-mini",
+  modelName = "openai/gpt-5.4",
   expectJson = false
 ): Promise<any> {
   try {

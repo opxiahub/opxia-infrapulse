@@ -36,7 +36,7 @@ Respond ONLY with a valid JSON object in this format:
 If the question asks about unavailable data, set "isAnswerable" to false and list "unavailableFields".`;
 
   try {
-    const result = await callGlobantLLM(systemPrompt, userMessage, "openai/gpt-4o-mini", true);
+    const result = await callGlobantLLM(systemPrompt, userMessage, "openai/gpt-5.4", true);
     
     if (!result) {
       // Fallback to default
